@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #EFEBDF;
+    --paper-deep: #E4DFCF;
+    --ink: #21283B;
+    --ink-soft: #4B5266;
+    --plum: #7A2E3B;
+    --jade: #3F6E56;
+    --gold: #B8933A;
+    --line: #D8D2BF;
+    --white: #FBFAF6;
+    --danger: #B0413E;
+    --ok: #3F6E56;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  .bojagi-strip {
+    height: 8px;
+    width: 100%;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--plum) 0 14%,
+      var(--jade) 14% 28%,
+      var(--gold) 28% 42%,
+      var(--ink) 42% 56%,
+      var(--plum) 56% 70%,
+      var(--jade) 70% 84%,
+      var(--gold) 84% 100%
+    );
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+  header.top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  h1 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--ink);
+  }
+  h1 span { color: var(--plum); }
+  .role-toggle {
+    display: flex;
+    gap: 8px;
+  }
+  .role-toggle button {
+    font-family: 'Inter', sans-serif;
+    border: 1.5px solid var(--ink);
+    background: transparent;
+    color: var(--ink);
+    padding: 8px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all .15s ease;
+  }
+  .role-toggle button.active {
+    background: var(--ink);
+    color: var(--white);
+  }
+  .card {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 22px;
+    margin-bottom: 18px;
+    position: relative;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: var(--jade);
+    border-radius: 4px 4px 0 0;
+  }
+  .card.plum::before { background: var(--plum); }
+  .card.gold::before { background: var(--gold); }
+  .subtabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 18px;
+  }
+  .subtabs button {
+    flex: 1;
+    font-family: 'Inter', sans-serif;
+    border: 1px solid var(--line);
+    background: var(--paper-deep);
+    color: var(--ink-soft);
+    padding: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    border-radius: 4px;
+  }
+  .subtabs button.active {
+    background: var(--white);
+    color: var(--ink);
+    border-color: var(--ink);
+    font-weight: 700;
+  }
+  label { display: block; font-size: 13px; color: var(--ink-soft); margin-bottom: 4px; font-weight: 500; }
+  input[type=text], textarea {
+    width: 100%;
+    font-family: 'Inter', sans-serif;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 15px;
+    background: var(--paper);
+    color: var(--ink);
+    margin-bottom: 12px;
+  }
+  .btn {
+    font-family: 'Inter', sans-serif;
+    border: none;
+    background: var(--ink);
+    color: var(--white);
+    padding: 11px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .btn.secondary { background: transparent; border: 1.5px solid var(--ink); color: var(--ink); }
+  .btn.plum { background: var(--plum); }
+  .btn.jade { background: var(--jade); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .q-block {
+    border: 1px dashed var(--line);
+    border-radius: 4px;
+    padding: 14px;
+    margin-bottom: 12px;
+    background: var(--paper);
+  }
+  .q-block .opt-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .q-block .opt-row input[type=text] { margin-bottom: 0; }
+  .q-block .del-q { align-self: flex-end; margin-top: -6px; }
+  .quiz-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .quiz-row:last-child { border-bottom: none; }
+  .quiz-title { font-weight: 700; }
+  .quiz-meta { font-size: 12px; color: var(--ink-soft); }
+  .empty { color: var(--ink-soft); font-size: 14px; text-align: center; padding: 20px 0; }
+  .code-display {
+    text-align: center;
+    padding: 24px 0;
+  }
+  .code-display .code {
+    font-family: 'Inter', sans-serif;
+    font-size: 48px;
+    font-weight: 800;
+    letter-spacing: 6px;
+    color: var(--plum);
+  }
+  .code-display .label { font-size: 13px; color: var(--ink-soft); margin-bottom: 6px; }
+  .status-pill {
+    display: inline-block;
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--paper-deep);
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+  .status-pill.live { background: var(--jade); color: var(--white); }
+  .answer-log-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .answer-log-row:last-child { border-bottom: none; }
+  .mark { font-size: 18px; width: 22px; flex-shrink: 0; }
+  .mark.correct { color: var(--ok); }
+  .mark.wrong { color: var(--danger); }
+  .log-text { font-size: 14px; }
+  .log-text .qtext { font-weight: 700; margin-bottom: 2px; }
+  .log-text .picked { color: var(--ink-soft); }
+  .log-text .correct-answer { color: var(--ok); }
+  .score-big {
+    text-align: center;
+    padding: 16px 0;
+  }
+  .score-big .num {
+    font-family: 'Inter', sans-serif;
+    font-size: 40px;
+    font-weight: 800;
+    color: var(--jade);
+  }
+  .student-q-num {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .student-q-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 21px;
+    margin-bottom: 20px;
+    color: var(--ink);
+  }
+  .opt-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    border: 1.5px solid var(--line);
+    border-radius: 4px;
+    background: var(--white);
+    color: var(--ink);
+    cursor: pointer;
+    transition: all .12s ease;
+  }
+  .opt-btn:hover { border-color: var(--ink); }
+  .opt-btn.selected.ok { background: var(--jade); border-color: var(--jade); color: var(--white); }
+  .opt-btn.selected.bad { background: var(--danger); border-color: var(--danger); color: var(--white); }
+  .opt-btn.reveal-correct { border-color: var(--ok); }
+  .opt-btn:disabled { cursor: default; }
+  .feedback-line { font-size: 14px; margin-top: 6px; margin-bottom: 16px; min-height: 20px; font-weight: 600; }
+  .feedback-line.ok { color: var(--ok); }
+  .feedback-line.bad { color: var(--danger); }
+  .err { color: var(--danger); font-size: 13px; margin-top: -6px; margin-bottom: 10px; }
+  .hint { font-size: 12px; color: var(--ink-soft); margin-top: -8px; margin-bottom: 14px; }
+  .join-form { max-width: 320px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<div class="bojagi-strip"></div>
+<div class="wrap">
+  <header class="top">
+    <h1>Quiz <span>Room</span></h1>
+    <div class="role-toggle">
+      <button id="roleTeacherBtn" class="active">Host</button>
+      <button id="roleStudentBtn">Student</button>
+    </div>
+  </header>
+
+  <div id="teacherView"></div>
+  <div id="studentView" style="display:none;"></div>
+</div>
+
+<script>
+// ---------- storage helpers ----------
+async function sGet(key) {
+  try {
+    const r = await window.storage.get(key, true);
+    return r ? JSON.parse(r.value) : null;
+  } catch (e) { return null; }
+}
+async function sSet(key, val) {
+  try {
+    await window.storage.set(key, JSON.stringify(val), true);
+    return true;
+  } catch (e) { return false; }
+}
+function uid() { return Math.random().toString(36).slice(2, 9); }
+function genCode() {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+// ---------- state ----------
+let role = 'teacher';
+let teacherSubtab = 'manage'; // manage | monitor
+let editingQuiz = null;
+let activeSessionCode = null;
+let monitorTimer = null;
+
+let studentStep = 'join'; // join | play | done
+let studentSession = null;
+let studentQuiz = null;
+let studentName = '';
+let studentJoinCode = '';
+let studentSelected = null;
+let studentFeedback = '';
+
+const teacherViewEl = document.getElementById('teacherView');
+const studentViewEl = document.getElementById('studentView');
+
+document.getElementById('roleTeacherBtn').onclick = () => { role='teacher'; renderAll(); };
+document.getElementById('roleStudentBtn').onclick = () => { role='student'; renderAll(); };
+
+function renderAll() {
+  document.getElementById('roleTeacherBtn').classList.toggle('active', role==='teacher');
+  document.getElementById('roleStudentBtn').classList.toggle('active', role==='student');
+  teacherViewEl.style.display = role==='teacher' ? 'block' : 'none';
+  studentViewEl.style.display = role==='student' ? 'block' : 'none';
+  if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+  if (role==='teacher') renderTeacher();
+  else renderStudent();
+}
+
+// ================= TEACHER =================
+function newEmptyQuiz() {
+  return { id: uid(), title: '', questions: [ newEmptyQuestion() ] };
+}
+function newEmptyQuestion() {
+  return { id: uid(), text: '', imageUrl: '', options: ['', '', '', ''], correct: 0 };
+}
+
+async function renderTeacher() {
+  teacherViewEl.innerHTML = `
+    <div class="subtabs">
+      <button id="tabManage" class="${teacherSubtab==='manage'?'active':''}">Create / Manage Quizzes</button>
+      <button id="tabMonitor" class="${teacherSubtab==='monitor'?'active':''}">Live Monitor</button>
+    </div>
+    <div id="teacherBody"></div>
+  `;
+  document.getElementById('tabManage').onclick = () => { teacherSubtab='manage'; editingQuiz=null; renderTeacher(); };
+  document.getElementById('tabMonitor').onclick = () => { teacherSubtab='monitor'; renderTeacher(); };
+
+  if (teacherSubtab === 'manage') await renderManage();
+  else await renderMonitorSetup();
+}
+
+async function renderManage() {
+  const body = document.getElementById('teacherBody');
+  if (editingQuiz) {
+    renderQuizEditor(body);
+    return;
+  }
+  const index = (await sGet('quiz-index')) || [];
+  body.innerHTML = `
+    <div class="card jade">
+      <div class="btn-row" style="margin-bottom: 4px;">
+        <button class="btn jade" id="newQuizBtn">+ New Quiz</button>
+      </div>
+    </div>
+    <div class="card">
+      ${index.length === 0 ? '<div class="empty">No quizzes saved yet.</div>' :
+        index.map(q => `
+          <div class="quiz-row">
+            <div>
+              <div class="quiz-title">${escapeHtml(q.title)}</div>
+              <div class="quiz-meta">${q.count} question${q.count===1?'':'s'} · ${new Date(q.updatedAt).toLocaleDateString('en-CA')}</div>
+            </div>
+            <div class="btn-row">
+              <button class="btn secondary" data-edit="${q.id}">Edit</button>
+              <button class="btn jade" data-start="${q.id}">Start</button>
+              <button class="btn secondary" data-del="${q.id}" style="border-color: var(--danger); color: var(--danger);">Delete</button>
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+  document.getElementById('newQuizBtn').onclick = () => { editingQuiz = newEmptyQuiz(); renderTeacher(); };
+  body.querySelectorAll('[data-edit]').forEach(btn => {
+    btn.onclick = async () => {
+      const quiz = await sGet('quiz:' + btn.dataset.edit);
+      if (quiz) { editingQuiz = quiz; renderTeacher(); }
+    };
+  });
+  body.querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Delete this quiz?')) return;
+      const idx = (await sGet('quiz-index')) || [];
+      const next = idx.filter(q => q.id !== btn.dataset.del);
+      await sSet('quiz-index', next);
+      renderTeacher();
+    };
+  });
+  body.querySelectorAll('[data-start]').forEach(btn => {
+    btn.onclick = async () => {
+      const quiz = await sGet('quiz:' + btn.dataset.start);
+      if (!quiz || !quiz.questions.length) { alert('This quiz has no questions.'); return; }
+      const code = genCode();
+      const session = {
+        code, quizId: quiz.id, quizTitle: quiz.title,
+        studentName: '', status: 'waiting',
+        currentIndex: 0, total: quiz.questions.length,
+        answers: [], startedAt: Date.now()
+      };
+      await sSet('session:' + code, session);
+      activeSessionCode = code;
+      teacherSubtab = 'monitor';
+      renderTeacher();
+    };
+  });
+}
+
+function renderQuizEditor(body) {
+  const q = editingQuiz;
+  body.innerHTML = `
+    <div class="card">
+      <label>Quiz Title</label>
+      <input type="text" id="quizTitleInput" value="${escapeAttr(q.title)}" placeholder="e.g. Adjectives Practice, Lesson 3">
+      <div id="questionsWrap"></div>
+      <div class="btn-row">
+        <button class="btn secondary" id="addQBtn">+ Add Question</button>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn jade" id="saveQuizBtn">Save</button>
+      <button class="btn secondary" id="cancelEditBtn">Cancel</button>
+    </div>
+  `;
+  const qWrap = document.getElementById('questionsWrap');
+  function renderQuestions() {
+    qWrap.innerHTML = q.questions.map((qq, i) => `
+      <div class="q-block" data-qi="${i}">
+        <label>Question ${i+1}</label>
+        <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="Type the question">
+        <label>Image URL (optional, raw GitHub link)</label>
+        <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="https://raw.githubusercontent.com/... (leave blank if none)">
+        ${qq.imageUrl ? `<img src="${escapeAttr(qq.imageUrl)}" style="max-width:100%; max-height:180px; display:block; margin-bottom:12px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
+        ${qq.options.map((opt, oi) => `
+          <div class="opt-row">
+            <input type="radio" name="correct-${i}" data-qi="${i}" data-oi="${oi}" class="opt-correct" ${qq.correct===oi?'checked':''}>
+            <input type="text" class="opt-text" data-qi="${i}" data-oi="${oi}" value="${escapeAttr(opt)}" placeholder="Option ${oi+1}">
+          </div>
+        `).join('')}
+        <div class="hint">Use the radio button to mark the correct answer</div>
+        <div class="btn-row">
+          <button class="btn secondary del-q" data-qi="${i}" style="border-color: var(--danger); color: var(--danger);">Delete this question</button>
+        </div>
+      </div>
+    `).join('');
+    qWrap.querySelectorAll('.q-text').forEach(el => {
+      el.oninput = () => { q.questions[+el.dataset.qi].text = el.value; };
+    });
+    qWrap.querySelectorAll('.q-image').forEach(el => {
+      el.oninput = () => { q.questions[+el.dataset.qi].imageUrl = el.value; };
+      el.onchange = () => { renderQuestions(); };
+    });
+    qWrap.querySelectorAll('.opt-text').forEach(el => {
+      el.oninput = () => { q.questions[+el.dataset.qi].options[+el.dataset.oi] = el.value; };
+    });
+    qWrap.querySelectorAll('.opt-correct').forEach(el => {
+      el.onchange = () => { q.questions[+el.dataset.qi].correct = +el.dataset.oi; };
+    });
+    qWrap.querySelectorAll('.del-q').forEach(el => {
+      el.onclick = () => {
+        if (q.questions.length <= 1) { alert('A quiz needs at least 1 question.'); return; }
+        q.questions.splice(+el.dataset.qi, 1);
+        renderQuestions();
+      };
+    });
+  }
+  renderQuestions();
+
+  document.getElementById('quizTitleInput').oninput = (e) => { q.title = e.target.value; };
+  document.getElementById('addQBtn').onclick = () => { q.questions.push(newEmptyQuestion()); renderQuestions(); };
+  document.getElementById('cancelEditBtn').onclick = () => { editingQuiz = null; renderTeacher(); };
+  document.getElementById('saveQuizBtn').onclick = async () => {
+    if (!q.title.trim()) { alert('Please enter a quiz title.'); return; }
+    for (const qq of q.questions) {
+      if (!qq.text.trim() || qq.options.some(o => !o.trim())) {
+        alert('Please fill in every question and option.'); return;
+      }
+    }
+    await sSet('quiz:' + q.id, q);
+    const idx = (await sGet('quiz-index')) || [];
+    const existing = idx.findIndex(x => x.id === q.id);
+    const entry = { id: q.id, title: q.title, count: q.questions.length, updatedAt: Date.now() };
+    if (existing >= 0) idx[existing] = entry; else idx.push(entry);
+    await sSet('quiz-index', idx);
+    editingQuiz = null;
+    renderTeacher();
+  };
+}
+
+async function renderMonitorSetup() {
+  const body = document.getElementById('teacherBody');
+  body.innerHTML = `
+    <div class="card">
+      <label>Load a session by code (starting a quiz brings you here automatically)</label>
+      <input type="text" id="monitorCodeInput" value="${activeSessionCode||''}" placeholder="e.g. 4821">
+      <button class="btn secondary" id="monitorLoadBtn">Load</button>
+    </div>
+    <div id="monitorBody"></div>
+  `;
+  document.getElementById('monitorLoadBtn').onclick = () => {
+    activeSessionCode = document.getElementById('monitorCodeInput').value.trim();
+    startMonitorPolling();
+  };
+  if (activeSessionCode) startMonitorPolling();
+}
+
+function startMonitorPolling() {
+  if (monitorTimer) clearInterval(monitorTimer);
+  renderMonitorBody();
+  monitorTimer = setInterval(renderMonitorBody, 2000);
+}
+
+async function renderMonitorBody() {
+  const el = document.getElementById('monitorBody');
+  if (!el || !activeSessionCode) return;
+  const session = await sGet('session:' + activeSessionCode);
+  if (!session) { el.innerHTML = '<div class="card empty">Could not find a session with that code.</div>'; return; }
+  const wrongCount = session.answers.filter(a => !a.isCorrect).length;
+  const correctCount = session.answers.filter(a => a.isCorrect).length;
+  el.innerHTML = `
+    <div class="card plum">
+      <div class="code-display">
+        <div class="label">Give this code to the student</div>
+        <div class="code">${activeSessionCode}</div>
+      </div>
+      <div style="text-align:center; margin-bottom: 4px;">
+        <span class="status-pill ${session.status==='active'?'live':''}">${
+          session.status==='waiting' ? 'Waiting for student' :
+          session.status==='active' ? (session.studentName + ' · in progress') :
+          (session.studentName + ' · done')
+        }</span>
+      </div>
+      <div style="text-align:center; font-size: 13px; color: var(--ink-soft); margin-top: 8px;">
+        ${session.quizTitle} · ${correctCount + wrongCount} / ${session.total} answered · Correct ${correctCount} / Wrong ${wrongCount}
+      </div>
+    </div>
+    <div class="card ${wrongCount>0?'plum':''}">
+      <div style="font-weight:700; margin-bottom: 8px;">Results by question</div>
+      ${session.answers.length === 0 ? '<div class="empty">No answers yet.</div>' :
+        session.answers.map((a, i) => `
+          <div class="answer-log-row">
+            <div class="mark ${a.isCorrect?'correct':'wrong'}">${a.isCorrect?'○':'✕'}</div>
+            <div class="log-text">
+              <div class="qtext">${i+1}. ${escapeHtml(a.qText)}</div>
+              ${a.imageUrl ? `<img src="${escapeAttr(a.imageUrl)}" style="max-width:160px; max-height:100px; display:block; margin:4px 0; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
+              <div class="picked">Selected: ${escapeHtml(a.selectedText)}</div>
+              ${!a.isCorrect ? `<div class="correct-answer">Correct answer: ${escapeHtml(a.correctText)}</div>` : ''}
+            </div>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+}
+
+// ================= STUDENT =================
+function renderStudent() {
+  if (studentStep === 'join') renderStudentJoin();
+  else if (studentStep === 'play') renderStudentPlay();
+  else renderStudentDone();
+}
+
+function renderStudentJoin() {
+  studentViewEl.innerHTML = `
+    <div class="card jade join-form">
+      <label>Name</label>
+      <input type="text" id="stuName" value="${escapeAttr(studentName)}" placeholder="Enter your name">
+      <label>Session Code</label>
+      <input type="text" id="stuCode" value="${escapeAttr(studentJoinCode)}" placeholder="Code your teacher gave you">
+      <div class="err" id="stuErr" style="display:none;"></div>
+      <button class="btn jade" id="stuJoinBtn" style="width:100%;">Start</button>
+    </div>
+  `;
+  document.getElementById('stuJoinBtn').onclick = async () => {
+    const name = document.getElementById('stuName').value.trim();
+    const code = document.getElementById('stuCode').value.trim();
+    const errEl = document.getElementById('stuErr');
+    if (!name || !code) { errEl.style.display='block'; errEl.textContent='Please enter both your name and the code.'; return; }
+    const session = await sGet('session:' + code);
+    if (!session) { errEl.style.display='block'; errEl.textContent='Could not find that code. Please check it.'; return; }
+    const quiz = await sGet('quiz:' + session.quizId);
+    if (!quiz) { errEl.style.display='block'; errEl.textContent='Could not load the quiz.'; return; }
+    session.studentName = name;
+    session.status = 'active';
+    await sSet('session:' + code, session);
+    studentName = name;
+    studentJoinCode = code;
+    studentSession = session;
+    studentQuiz = quiz;
+    studentSelected = null;
+    studentFeedback = '';
+    studentStep = 'play';
+    renderStudent();
+  };
+}
+
+function renderStudentPlay() {
+  const q = studentQuiz.questions[studentSession.currentIndex];
+  studentViewEl.innerHTML = `
+    <div class="card">
+      <div class="student-q-num">${studentSession.currentIndex+1} / ${studentQuiz.questions.length}</div>
+      <div class="student-q-text">${escapeHtml(q.text)}</div>
+      ${q.imageUrl ? `<img src="${escapeAttr(q.imageUrl)}" style="max-width:100%; max-height:280px; display:block; margin-bottom:18px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
+      <div id="optsWrap"></div>
+      <div class="feedback-line ${studentFeedback && studentSelected===q.correct?'ok':studentFeedback?'bad':''}">${studentFeedback}</div>
+      <button class="btn jade" id="nextBtn" style="display:none;">Next Question</button>
+    </div>
+  `;
+  const optsWrap = document.getElementById('optsWrap');
+  optsWrap.innerHTML = q.options.map((opt, oi) => `
+    <button class="opt-btn" data-oi="${oi}">${escapeHtml(opt)}</button>
+  `).join('');
+  optsWrap.querySelectorAll('.opt-btn').forEach(btn => {
+    btn.onclick = async () => {
+      if (studentSelected !== null) return;
+      const oi = +btn.dataset.oi;
+      studentSelected = oi;
+      const isCorrect = oi === q.correct;
+      studentFeedback = isCorrect ? 'Correct!' : 'Not quite — check the correct answer.';
+      optsWrap.querySelectorAll('.opt-btn').forEach((b2, i2) => {
+        b2.disabled = true;
+        if (i2 === oi) b2.classList.add('selected', isCorrect ? 'ok' : 'bad');
+        if (i2 === q.correct && !isCorrect) b2.classList.add('reveal-correct');
+      });
+      studentSession.answers.push({
+        qText: q.text,
+        imageUrl: q.imageUrl || '',
+        selectedText: q.options[oi],
+        correctText: q.options[q.correct],
+        isCorrect
+      });
+      await sSet('session:' + studentJoinCode, studentSession);
+      renderStudent();
+      document.getElementById('nextBtn').style.display = 'inline-block';
+      document.getElementById('nextBtn').onclick = async () => {
+        studentSession.currentIndex += 1;
+        studentSelected = null;
+        studentFeedback = '';
+        if (studentSession.currentIndex >= studentQuiz.questions.length) {
+          studentSession.status = 'done';
+          await sSet('session:' + studentJoinCode, studentSession);
+          studentStep = 'done';
+        } else {
+          await sSet('session:' + studentJoinCode, studentSession);
+        }
+        renderStudent();
+      };
+    };
+  });
+}
+
+function renderStudentDone() {
+  const correct = studentSession.answers.filter(a => a.isCorrect).length;
+  const total = studentSession.answers.length;
+  studentViewEl.innerHTML = `
+    <div class="card jade">
+      <div class="score-big">
+        <div>Nice work, ${escapeHtml(studentName)}!</div>
+        <div class="num">${correct} / ${total}</div>
+      </div>
+    </div>
+    <div class="btn-row" style="justify-content:center;">
+      <button class="btn secondary" id="restartBtn">Start Over</button>
+    </div>
+  `;
+  document.getElementById('restartBtn').onclick = () => {
+    studentStep = 'join';
+    studentJoinCode = '';
+    renderStudent();
+  };
+}
+
+// ---------- utils ----------
+function escapeHtml(s) {
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+renderAll();
+</script>
+</body>
+</html>
