@@ -322,6 +322,7 @@ function toRawGithubUrl(url) {
 
 // ---------- state ----------
 let role = 'teacher';
+let hostAccess = false;
 let teacherSubtab = 'manage'; // manage | monitor
 let editingQuiz = null;
 let activeSessionCode = null;
@@ -334,6 +335,15 @@ let studentName = '';
 let studentJoinCode = '';
 let studentSelected = null;
 let studentFeedback = '';
+let prefilledCode = '';
+
+const params = new URLSearchParams(window.location.search);
+hostAccess = params.has('host');
+role = hostAccess ? 'teacher' : 'student';
+prefilledCode = params.get('code') || '';
+if (!hostAccess) {
+  document.querySelector('.role-toggle').style.display = 'none';
+}
 
 const teacherViewEl = document.getElementById('teacherView');
 const studentViewEl = document.getElementById('studentView');
@@ -561,6 +571,9 @@ async function renderMonitorBody() {
         <div class="label">Give this code to the student</div>
         <div class="code">${activeSessionCode}</div>
       </div>
+      <div style="text-align:center; font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; word-break: break-all;">
+        Or send this link (code is pre-filled): ${window.location.origin}${window.location.pathname}?code=${activeSessionCode}
+      </div>
       <div style="text-align:center; margin-bottom: 4px;">
         <span class="status-pill ${session.status==='active'?'live':''}">${
           session.status==='waiting' ? 'Waiting for student' :
@@ -604,7 +617,7 @@ function renderStudentJoin() {
       <label>Name</label>
       <input type="text" id="stuName" value="${escapeAttr(studentName)}" placeholder="Enter your name">
       <label>Session Code</label>
-      <input type="text" id="stuCode" value="${escapeAttr(studentJoinCode)}" placeholder="Code your teacher gave you">
+      <input type="text" id="stuCode" value="${escapeAttr(studentJoinCode || prefilledCode)}" placeholder="Code your teacher gave you">
       <div class="err" id="stuErr" style="display:none;"></div>
       <button class="btn jade" id="stuJoinBtn" style="width:100%;">Start</button>
     </div>
