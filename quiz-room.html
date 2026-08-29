@@ -478,7 +478,7 @@ function newEmptyQuiz() {
   return { id: uid(), title: '', questions: [ newEmptyQuestion() ] };
 }
 function newEmptyQuestion() {
-  return { id: uid(), type: 'mc', text: '', imageUrl: '', options: ['', '', '', ''], correct: 0, pairs: [ newEmptyPair(), newEmptyPair() ] };
+  return { id: uid(), type: 'mc', text: '', imageUrl: '', options: ['', '', '', ''], correct: 0, correctIndices: [], pairs: [ newEmptyPair(), newEmptyPair() ] };
 }
 function newEmptyPair() {
   return { id: uid(), left: '', right: '' };
@@ -588,12 +588,12 @@ function renderQuizEditor(body) {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
           <label style="margin-bottom:0;">Question ${i+1}</label>
           <select class="q-type" data-qi="${i}">
-            <option value="mc" ${qq.type!=='match' && qq.type!=='dropdown' ? 'selected':''}>Multiple Choice</option>
-            <option value="dropdown" ${qq.type==='dropdown'?'selected':''}>Dropdown</option>
-            <option value="match" ${qq.type==='match'?'selected':''}>Matching (draw-a-line)</option>
+            <option value="mc" ${qq.type!=='match' && qq.type!=='dragdrop' ? 'selected':''}>Multiple Choice</option>
+            <option value="match" ${qq.type==='match'?'selected':''}>Matching — draw a line</option>
+            <option value="dragdrop" ${qq.type==='dragdrop'?'selected':''}>Matching — drag and drop</option>
           </select>
         </div>
-        ${qq.type === 'match' ? renderMatchFields(qq, i) : renderMcFields(qq, i)}
+        ${qq.type === 'match' || qq.type === 'dragdrop' ? renderMatchFields(qq, i) : renderMcFields(qq, i)}
         <div class="btn-row">
           <button class="btn secondary del-q" data-qi="${i}" style="border-color: var(--danger); color: var(--danger);">Delete this question</button>
         </div>
@@ -619,6 +619,33 @@ function renderQuizEditor(body) {
     });
     qWrap.querySelectorAll('.opt-correct').forEach(el => {
       el.onchange = () => { q.questions[+el.dataset.qi].correct = +el.dataset.oi; };
+    });
+    qWrap.querySelectorAll('.ms-text').forEach(el => {
+      el.oninput = () => { q.questions[+el.dataset.qi].options[+el.dataset.oi] = el.value; };
+    });
+    qWrap.querySelectorAll('.ms-correct').forEach(el => {
+      el.onchange = () => {
+        const qq = q.questions[+el.dataset.qi];
+        const oi = +el.dataset.oi;
+        if (el.checked) {
+          if (!qq.correctIndices.includes(oi)) qq.correctIndices.push(oi);
+        } else {
+          qq.correctIndices = qq.correctIndices.filter(x => x !== oi);
+        }
+      };
+    });
+    qWrap.querySelectorAll('.add-card').forEach(el => {
+      el.onclick = () => { q.questions[+el.dataset.qi].options.push(''); renderQuestions(); };
+    });
+    qWrap.querySelectorAll('.del-card').forEach(el => {
+      el.onclick = () => {
+        const qq = q.questions[+el.dataset.qi];
+        const oi = +el.dataset.oi;
+        if (qq.options.length <= 2) { alert('Need at least 2 cards.'); return; }
+        qq.options.splice(oi, 1);
+        qq.correctIndices = qq.correctIndices.filter(x => x !== oi).map(x => x > oi ? x - 1 : x);
+        renderQuestions();
+      };
     });
     qWrap.querySelectorAll('.pair-left').forEach(el => {
       el.oninput = () => { q.questions[+el.dataset.qi].pairs[+el.dataset.pi].left = el.value; };
@@ -657,7 +684,26 @@ function renderQuizEditor(body) {
             <input type="text" class="opt-text" data-qi="${i}" data-oi="${oi}" value="${escapeAttr(opt)}" placeholder="Option ${oi+1}">
           </div>
         `).join('')}
-        <div class="hint">${qq.type==='dropdown' ? 'This will show as a dropdown menu to the student. ' : ''}Use the radio button to mark the correct answer</div>
+        <div class="hint">Use the radio button to mark the correct answer</div>
+    `;
+  }
+  function renderMultiselectFields(qq, i) {
+    return `
+        <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="Category or prompt (e.g. 겨울 - Winter)">
+        <label>Image URL (optional — paste the GitHub file link, converts automatically)</label>
+        <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="Paste the github.com/.../blob/... link here (leave blank if none)">
+        ${qq.imageUrl ? `<img src="${escapeAttr(qq.imageUrl)}" style="max-width:100%; max-height:180px; display:block; margin-bottom:12px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
+        ${qq.options.map((opt, oi) => `
+          <div class="opt-row">
+            <input type="checkbox" class="ms-correct" data-qi="${i}" data-oi="${oi}" ${qq.correctIndices.includes(oi)?'checked':''}>
+            <input type="text" class="ms-text" data-qi="${i}" data-oi="${oi}" value="${escapeAttr(opt)}" placeholder="Card ${oi+1}">
+            <button class="btn secondary del-card" data-qi="${i}" data-oi="${oi}" style="padding:8px 12px; border-color: var(--danger); color: var(--danger);">✕</button>
+          </div>
+        `).join('')}
+        <div class="btn-row" style="margin-bottom: 10px;">
+          <button class="btn secondary add-card" data-qi="${i}">+ Add Card</button>
+        </div>
+        <div class="hint">Check every card that belongs with the prompt (one or more)</div>
     `;
   }
   function renderMatchFields(qq, i) {
@@ -684,9 +730,16 @@ function renderQuizEditor(body) {
   document.getElementById('saveQuizBtn').onclick = async () => {
     if (!q.title.trim()) { alert('Please enter a quiz title.'); return; }
     for (const qq of q.questions) {
-      if (qq.type === 'match') {
+      if (qq.type === 'match' || qq.type === 'dragdrop') {
         if (qq.pairs.some(p => !p.left.trim() || !p.right.trim())) {
           alert('Please fill in every pair in each matching question.'); return;
+        }
+      } else if (qq.type === 'multiselect') {
+        if (!qq.text.trim() || qq.options.some(o => !o.trim())) {
+          alert('Please fill in every card and the category text.'); return;
+        }
+        if (qq.correctIndices.length === 0) {
+          alert('Please check at least one correct card for each multi-select question.'); return;
         }
       } else {
         if (!qq.text.trim() || qq.options.some(o => !o.trim())) {
@@ -834,7 +887,8 @@ function renderStudentJoin() {
 function renderStudentPlay() {
   const q = studentQuiz.questions[studentSession.currentIndex];
   if (q.type === 'match') { renderStudentPlayMatch(q); return; }
-  if (q.type === 'dropdown') { renderStudentPlayDropdown(q); return; }
+  if (q.type === 'multiselect') { renderStudentPlayMultiselect(q); return; }
+  if (q.type === 'dragdrop') { renderStudentPlayDragDrop(q); return; }
   renderStudentPlayMC(q);
 }
 
@@ -894,37 +948,54 @@ function renderStudentPlayMC(q) {
   });
 }
 
-function renderStudentPlayDropdown(q) {
+function renderStudentPlayMultiselect(q) {
   studentViewEl.innerHTML = `
     <div class="card">
       <div class="student-q-num">${studentSession.currentIndex+1} / ${studentQuiz.questions.length}</div>
       <div class="student-q-text">${escapeHtml(q.text)}</div>
       ${q.imageUrl ? `<img src="${escapeAttr(q.imageUrl)}" style="max-width:100%; max-height:280px; display:block; margin-bottom:18px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
-      <select id="ddSelect" style="width:100%; font-family:'Inter',sans-serif; font-size:16px; padding:12px 14px; border:1.5px solid var(--line); border-radius:4px; background:var(--white); color:var(--ink); margin-bottom:14px;">
-        <option value="" disabled selected>Choose an answer…</option>
-        ${q.options.map((opt, oi) => `<option value="${oi}">${escapeHtml(opt)}</option>`).join('')}
-      </select>
-      <button class="btn jade" id="ddSubmitBtn">Submit</button>
+      <div id="msWrap" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;"></div>
+      <button class="btn jade" id="msSubmitBtn">Submit</button>
       <div class="feedback-line"></div>
       <button class="btn jade" id="nextBtn" style="display:none;">Next Question</button>
     </div>
   `;
-  document.getElementById('ddSubmitBtn').onclick = async () => {
-    const sel = document.getElementById('ddSelect');
-    if (sel.value === '') return;
-    const oi = +sel.value;
-    const isCorrect = oi === q.correct;
+  const msWrap = document.getElementById('msWrap');
+  msWrap.innerHTML = q.options.map((opt, oi) => `
+    <button class="opt-btn" data-oi="${oi}" style="width:auto; flex:1 1 45%; text-align:center; margin-bottom:0;">${escapeHtml(opt)}</button>
+  `).join('');
+  const selected = new Set();
+  msWrap.querySelectorAll('.opt-btn').forEach(btn => {
+    btn.onclick = () => {
+      const oi = +btn.dataset.oi;
+      if (selected.has(oi)) { selected.delete(oi); btn.classList.remove('selected', 'ok'); }
+      else { selected.add(oi); btn.classList.add('selected', 'ok'); }
+    };
+  });
+  document.getElementById('msSubmitBtn').onclick = async () => {
+    if (selected.size === 0) return;
+    const chosen = Array.from(selected).sort((a,b)=>a-b);
+    const correctSorted = q.correctIndices.slice().sort((a,b)=>a-b);
+    const isCorrect = chosen.length === correctSorted.length && chosen.every((v,i) => v === correctSorted[i]);
     const feedbackEl = document.querySelector('.feedback-line');
     feedbackEl.textContent = isCorrect ? 'Correct!' : "Not quite — you'll get it next time!";
     feedbackEl.classList.add(isCorrect ? 'ok' : 'bad');
     if (!isCorrect) playWrongSound();
-    sel.disabled = true;
-    document.getElementById('ddSubmitBtn').disabled = true;
+    msWrap.querySelectorAll('.opt-btn').forEach((b2, i2) => {
+      b2.disabled = true;
+      const shouldBeCorrect = q.correctIndices.includes(i2);
+      const wasChosen = selected.has(i2);
+      b2.classList.remove('ok');
+      if (wasChosen && shouldBeCorrect) b2.classList.add('ok');
+      else if (wasChosen && !shouldBeCorrect) b2.classList.add('bad');
+      else if (!wasChosen && shouldBeCorrect) b2.classList.add('reveal-correct');
+    });
+    document.getElementById('msSubmitBtn').disabled = true;
     studentSession.answers.push({
       qText: q.text,
       imageUrl: q.imageUrl || '',
-      selectedText: q.options[oi],
-      correctText: q.options[q.correct],
+      selectedText: chosen.map(i => q.options[i]).join(', ') || '(none)',
+      correctText: correctSorted.map(i => q.options[i]).join(', '),
       isCorrect
     });
     await sSet('session:' + studentJoinCode, studentSession);
@@ -1038,6 +1109,100 @@ function renderStudentPlayMatch(q) {
       selectedLeftId = null;
       checkDone();
     };
+  });
+}
+
+function renderStudentPlayDragDrop(q) {
+  const leftItems = q.pairs.map(p => ({ id: p.id, text: p.left }));
+  const rightItems = shuffleArray(q.pairs.map(p => ({ id: p.id, text: p.right })));
+  studentViewEl.innerHTML = `
+    <div class="card">
+      <div class="student-q-num">${studentSession.currentIndex+1} / ${studentQuiz.questions.length}</div>
+      <div class="student-q-text">${escapeHtml(q.text || 'Drag each word to its match')}</div>
+      <div id="ddZones" style="display:flex; flex-direction:column; gap:10px; margin-bottom:18px;"></div>
+      <div id="ddPool" style="display:flex; flex-wrap:wrap; gap:10px; min-height:54px; padding:12px; border:1px dashed var(--line); border-radius:6px; margin-bottom:16px;"></div>
+      <div class="feedback-line"></div>
+      <button class="btn jade" id="nextBtn" style="display:none;">Next Question</button>
+    </div>
+  `;
+  const zonesEl = document.getElementById('ddZones');
+  const poolEl = document.getElementById('ddPool');
+  zonesEl.innerHTML = leftItems.map(li => `
+    <div class="dd-zone" data-target="${li.id}" style="display:flex; align-items:center; gap:10px; border:1.5px dashed var(--line); border-radius:6px; padding:10px 14px;">
+      <span style="font-weight:700; min-width:110px; font-family:'Inter',sans-serif;">${escapeHtml(li.text)}</span>
+      <span class="dd-slot" data-target="${li.id}" style="flex:1; min-height:36px; border-radius:4px; background:var(--paper); display:flex; align-items:center; padding:0 10px; font-family:'Inter',sans-serif;"></span>
+    </div>
+  `).join('');
+  poolEl.innerHTML = rightItems.map(ri => `
+    <div class="dd-card" data-id="${ri.id}" style="touch-action:none; padding:9px 16px; border:1.5px solid var(--line); border-radius:999px; background:var(--white); cursor:grab; user-select:none; font-family:'Inter',sans-serif; font-size:14px;">${escapeHtml(ri.text)}</div>
+  `).join('');
+
+  const matched = {};
+
+  function checkDone() {
+    if (Object.keys(matched).length !== q.pairs.length) return;
+    const correctCount = Object.values(matched).filter(m => m.correct).length;
+    const allCorrect = correctCount === q.pairs.length;
+    const fb = document.querySelector('.feedback-line');
+    fb.textContent = `Matched ${correctCount}/${q.pairs.length} correctly`;
+    fb.classList.add(allCorrect ? 'ok' : 'bad');
+    const wrongDetails = q.pairs
+      .filter(p => !matched[p.id].correct)
+      .map(p => {
+        const got = q.pairs.find(x => x.id === matched[p.id].chosenId);
+        return `${p.left} → ${got ? got.right : '?'} (correct: ${p.right})`;
+      });
+    studentSession.answers.push({
+      qText: q.text || 'Drag & drop matching',
+      imageUrl: '',
+      selectedText: `Matched ${correctCount}/${q.pairs.length} pairs`,
+      correctText: wrongDetails.join('; '),
+      isCorrect: allCorrect
+    });
+    sSet('session:' + studentJoinCode, studentSession);
+    document.getElementById('nextBtn').style.display = 'inline-block';
+    document.getElementById('nextBtn').onclick = () => advanceToNext();
+  }
+
+  poolEl.querySelectorAll('.dd-card').forEach(card => {
+    let dragging = false, offsetX = 0, offsetY = 0;
+    card.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      card.setPointerCapture(e.pointerId);
+      const rect = card.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      card.style.position = 'fixed';
+      card.style.zIndex = '1000';
+      card.style.width = rect.width + 'px';
+      card.style.left = rect.left + 'px';
+      card.style.top = rect.top + 'px';
+    });
+    card.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      card.style.left = (e.clientX - offsetX) + 'px';
+      card.style.top = (e.clientY - offsetY) + 'px';
+    });
+    card.addEventListener('pointerup', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      card.style.position = '';
+      card.style.left = ''; card.style.top = ''; card.style.width = ''; card.style.zIndex = '';
+      const dropEl = document.elementFromPoint(e.clientX, e.clientY);
+      const zone = dropEl && dropEl.closest ? dropEl.closest('.dd-slot, .dd-zone') : null;
+      const targetId = zone ? zone.dataset.target : null;
+      if (targetId && !matched[targetId]) {
+        const correct = targetId === card.dataset.id;
+        matched[targetId] = { chosenId: card.dataset.id, correct };
+        const slot = zonesEl.querySelector(`.dd-slot[data-target="${targetId}"]`);
+        slot.textContent = card.textContent;
+        slot.style.border = '2px solid ' + (correct ? '#3F6E56' : '#B0413E');
+        slot.style.background = correct ? '#EAF3EE' : '#F7E9E8';
+        if (!correct) playWrongSound();
+        card.remove();
+        checkDone();
+      }
+    });
   });
 }
 
