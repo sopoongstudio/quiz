@@ -260,16 +260,17 @@
   .err { color: var(--danger); font-size: 13px; margin-top: -6px; margin-bottom: 10px; }
   .hint { font-size: 12px; color: var(--ink-soft); margin-top: -8px; margin-bottom: 14px; }
   .join-form { max-width: 320px; margin: 0 auto; }
-  .match-wrap { position: relative; display: flex; justify-content: space-between; gap: 90px; }
+  .match-wrap { position: relative; display: flex; justify-content: space-between; gap: 20px; }
   @media (max-width: 480px) {
-    .match-wrap { gap: 40px; }
+    .match-col { flex: 0 1 44%; max-width: 44%; }
+    .match-wrap { gap: 12px; }
   }
-  .match-col { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .match-col { flex: 0 1 40%; max-width: 40%; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .match-pill {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 8px;
     border: 1.5px solid var(--line); border-radius: 999px;
-    padding: 10px 14px; background: var(--white);
-    cursor: pointer; font-size: 14px; font-family: 'Inter', sans-serif;
+    padding: 8px 10px; background: var(--white);
+    cursor: pointer; font-size: 13px; font-family: 'Inter', sans-serif;
     width: 100%; text-align: left;
   }
   .match-pill .match-text { flex: 1; overflow-wrap: anywhere; }
@@ -870,21 +871,25 @@ function renderStudent() {
 }
 
 function renderStudentJoin() {
+  const hasPrefilled = !!(prefilledCode && !studentJoinCode);
   studentViewEl.innerHTML = `
     <div class="card jade join-form">
       <label>Name</label>
       <input type="text" id="stuName" value="${escapeAttr(studentName)}" placeholder="Enter your name">
+      ${hasPrefilled ? '' : `
       <label>Session Code</label>
-      <input type="text" id="stuCode" value="${escapeAttr(studentJoinCode || prefilledCode)}" placeholder="Code your teacher gave you">
+      <input type="text" id="stuCode" value="${escapeAttr(studentJoinCode)}" placeholder="Code your teacher gave you">
+      `}
       <div class="err" id="stuErr" style="display:none;"></div>
       <button class="btn jade" id="stuJoinBtn" style="width:100%;">Start</button>
     </div>
   `;
   document.getElementById('stuJoinBtn').onclick = async () => {
     const name = document.getElementById('stuName').value.trim();
-    const code = document.getElementById('stuCode').value.trim();
+    const codeInput = document.getElementById('stuCode');
+    const code = hasPrefilled ? prefilledCode : (codeInput ? codeInput.value.trim() : '');
     const errEl = document.getElementById('stuErr');
-    if (!name || !code) { errEl.style.display='block'; errEl.textContent='Please enter both your name and the code.'; return; }
+    if (!name || !code) { errEl.style.display='block'; errEl.textContent='Please enter your name.'; return; }
     const session = await sGet('session:' + code);
     if (!session) { errEl.style.display='block'; errEl.textContent='Could not find that code. Please check it.'; return; }
     if (session.status === 'closed') { errEl.style.display='block'; errEl.textContent='This session has ended. Ask your teacher to start a new one.'; return; }
