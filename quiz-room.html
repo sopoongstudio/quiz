@@ -276,17 +276,32 @@
   <div id="studentView" style="display:none;"></div>
 </div>
 
-<script>
-// ---------- storage helpers ----------
+<script type="module">
+// ---------- Firebase setup ----------
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDWWi_Zsl8wblOhIcA97bEVEmp75WyJIWo",
+  authDomain: "quiz-b52e1.firebaseapp.com",
+  projectId: "quiz-b52e1",
+  storageBucket: "quiz-b52e1.firebasestorage.app",
+  messagingSenderId: "692181807751",
+  appId: "1:692181807751:web:956a8044cc14b32fe2be22"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+// ---------- storage helpers (backed by Firestore) ----------
 async function sGet(key) {
   try {
-    const r = await window.storage.get(key, true);
-    return r ? JSON.parse(r.value) : null;
+    const snap = await getDoc(doc(db, 'storage', key));
+    return snap.exists() ? JSON.parse(snap.data().value) : null;
   } catch (e) { return null; }
 }
 async function sSet(key, val) {
   try {
-    await window.storage.set(key, JSON.stringify(val), true);
+    await setDoc(doc(db, 'storage', key), { value: JSON.stringify(val) });
     return true;
   } catch (e) { return false; }
 }
