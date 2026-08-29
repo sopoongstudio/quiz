@@ -794,8 +794,12 @@ async function renderMonitorBody() {
         <div class="label">Give this code to the student</div>
         <div class="code">${activeSessionCode}</div>
       </div>
-      <div style="text-align:center; font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; word-break: break-all;">
-        Or send this link (code is pre-filled): ${window.location.origin}${window.location.pathname}?code=${activeSessionCode}
+      <div style="margin-bottom: 14px;">
+        <div style="font-size: 12px; color: var(--ink-soft); text-align:center; margin-bottom: 6px;">Or send this link (code is pre-filled):</div>
+        <div style="display:flex; gap: 6px;">
+          <input type="text" id="studentLinkInput" readonly value="${window.location.origin}${window.location.pathname}?code=${activeSessionCode}" style="flex:1; font-size:12px; margin-bottom:0; background: var(--white);" onclick="this.select()">
+          <button class="btn secondary" id="copyLinkBtn" style="white-space:nowrap;">Copy</button>
+        </div>
       </div>
       <div style="text-align:center; margin-bottom: 4px;">
         <span class="status-pill ${session.status==='active'?'live':''}">${
@@ -837,6 +841,20 @@ async function renderMonitorBody() {
       session.status = 'closed';
       await sSet('session:' + activeSessionCode, session);
       renderMonitorBody();
+    };
+  }
+  const copyBtn = document.getElementById('copyLinkBtn');
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      const input = document.getElementById('studentLinkInput');
+      try {
+        await navigator.clipboard.writeText(input.value);
+      } catch (e) {
+        input.select();
+        document.execCommand('copy');
+      }
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
     };
   }
 }
