@@ -309,6 +309,16 @@ function uid() { return Math.random().toString(36).slice(2, 9); }
 function genCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
+// Converts a GitHub "blob" file URL to its raw.githubusercontent.com equivalent.
+// Leaves any other URL (or empty string) untouched.
+function toRawGithubUrl(url) {
+  if (!url) return url;
+  const m = url.match(/^https?:\/\/github\.com\/([^\/]+)\/([^\/]+)\/blob\/(.+)$/);
+  if (m) {
+    return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}`;
+  }
+  return url;
+}
 
 // ---------- state ----------
 let role = 'teacher';
@@ -452,8 +462,8 @@ function renderQuizEditor(body) {
       <div class="q-block" data-qi="${i}">
         <label>Question ${i+1}</label>
         <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="Type the question">
-        <label>Image URL (optional, raw GitHub link)</label>
-        <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="https://raw.githubusercontent.com/... (leave blank if none)">
+        <label>Image URL (optional — paste the GitHub file link, converts automatically)</label>
+        <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="Paste the github.com/.../blob/... link here (leave blank if none)">
         ${qq.imageUrl ? `<img src="${escapeAttr(qq.imageUrl)}" style="max-width:100%; max-height:180px; display:block; margin-bottom:12px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
         ${qq.options.map((opt, oi) => `
           <div class="opt-row">
@@ -472,7 +482,11 @@ function renderQuizEditor(body) {
     });
     qWrap.querySelectorAll('.q-image').forEach(el => {
       el.oninput = () => { q.questions[+el.dataset.qi].imageUrl = el.value; };
-      el.onchange = () => { renderQuestions(); };
+      el.onchange = () => {
+        const converted = toRawGithubUrl(el.value.trim());
+        q.questions[+el.dataset.qi].imageUrl = converted;
+        renderQuestions();
+      };
     });
     qWrap.querySelectorAll('.opt-text').forEach(el => {
       el.oninput = () => { q.questions[+el.dataset.qi].options[+el.dataset.oi] = el.value; };
