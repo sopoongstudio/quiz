@@ -260,7 +260,10 @@
   .err { color: var(--danger); font-size: 13px; margin-top: -6px; margin-bottom: 10px; }
   .hint { font-size: 12px; color: var(--ink-soft); margin-top: -8px; margin-bottom: 14px; }
   .join-form { max-width: 320px; margin: 0 auto; }
-  .match-wrap { position: relative; display: flex; justify-content: space-between; gap: 32px; }
+  .match-wrap { position: relative; display: flex; justify-content: space-between; gap: 90px; }
+  @media (max-width: 480px) {
+    .match-wrap { gap: 40px; }
+  }
   .match-col { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .match-pill {
     display: flex; align-items: center; gap: 10px;
@@ -269,7 +272,7 @@
     cursor: pointer; font-size: 14px; font-family: 'Inter', sans-serif;
     width: 100%; text-align: left;
   }
-  .match-pill span:nth-child(2) { flex: 1; overflow-wrap: anywhere; }
+  .match-pill .match-text { flex: 1; overflow-wrap: anywhere; }
   .match-badge {
     width: 22px; height: 22px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
@@ -1036,7 +1039,7 @@ function renderStudentPlayMatch(q) {
           ${leftItems.map(li => `
             <button class="match-pill" data-side="left" data-id="${li.id}">
               <span class="match-badge left-badge">${li.num}</span>
-              <span>${escapeHtml(li.text)}</span>
+              <span class="match-text">${escapeHtml(li.text)}</span>
               <span class="match-dot" data-dot="left-${li.id}"></span>
             </button>
           `).join('')}
@@ -1046,7 +1049,7 @@ function renderStudentPlayMatch(q) {
             <button class="match-pill" data-side="right" data-id="${ri.id}">
               <span class="match-dot" data-dot="right-${ri.id}"></span>
               <span class="match-badge right-badge">${letters[idx]}</span>
-              <span>${escapeHtml(ri.text)}</span>
+              <span class="match-text">${escapeHtml(ri.text)}</span>
             </button>
           `).join('')}
         </div>
