@@ -254,7 +254,13 @@
   .opt-btn.selected.bad { background: var(--danger); border-color: var(--danger); color: var(--white); }
   .opt-btn.reveal-correct { border-color: var(--ok); }
   .opt-btn:disabled { cursor: default; }
-  .feedback-line { font-size: 14px; margin-top: 6px; margin-bottom: 16px; min-height: 20px; font-weight: 600; }
+  .feedback-line { font-size: 16px; margin-top: 6px; margin-bottom: 16px; min-height: 20px; font-weight: 700; }
+  .feedback-line.pop { animation: popIn 0.35s ease; }
+  @keyframes popIn {
+    0% { transform: scale(0.85); opacity: 0; }
+    60% { transform: scale(1.08); opacity: 1; }
+    100% { transform: scale(1); }
+  }
   .feedback-line.ok { color: var(--ok); }
   .feedback-line.bad { color: var(--danger); }
   .err { color: var(--danger); font-size: 13px; margin-top: -6px; margin-bottom: 10px; }
@@ -349,6 +355,23 @@ function genCode() {
 }
 
 // ---------- sound effects (synthesized, no external audio files) ----------
+function playCorrectSound() {
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    [659.25, 987.77].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      const start = ctx.currentTime + i*0.09;
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.16, start+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, start+0.22);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(start); o.stop(start+0.24);
+    });
+  } catch(e) {}
+}
 function playWrongSound() {
   try {
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -843,6 +866,10 @@ async function renderMonitorBody() {
       <div style="text-align:center; margin-top: 14px;">
         <button class="btn secondary" id="endSessionBtn" style="border-color: var(--danger); color: var(--danger);">End Session</button>
       </div>` : ''}
+      ${session.status === 'done' || session.status === 'closed' ? `
+      <div style="text-align:center; margin-top: 10px;">
+        <button class="btn jade" id="restartSessionBtn">Restart — let the student try again</button>
+      </div>` : ''}
     </div>
     <div class="card ${wrongCount>0?'plum':''}">
       <div style="font-weight:700; margin-bottom: 8px;">Results by question</div>
@@ -866,6 +893,16 @@ async function renderMonitorBody() {
     endBtn.onclick = async () => {
       if (!confirm('End this session? The student link will stop working.')) return;
       session.status = 'closed';
+      await sSet('session:' + activeSessionCode, session);
+      renderMonitorBody();
+    };
+  }
+  const restartBtn = document.getElementById('restartSessionBtn');
+  if (restartBtn) {
+    restartBtn.onclick = async () => {
+      session.status = 'waiting';
+      session.currentIndex = 0;
+      session.answers = [];
       await sSet('session:' + activeSessionCode, session);
       renderMonitorBody();
     };
@@ -975,13 +1012,16 @@ function renderStudentPlayMC(q) {
       const oi = +btn.dataset.oi;
       studentSelected = oi;
       const isCorrect = oi === q.correct;
-      studentFeedback = isCorrect ? 'Correct!' : "Not quite — you'll get it next time!";
-      if (!isCorrect) playWrongSound();
+      studentFeedback = isCorrect ? '✅ Correct!' : "❌ Not quite — you'll get it next time!";
+      if (isCorrect) playCorrectSound(); else playWrongSound();
       optsWrap.querySelectorAll('.opt-btn').forEach((b2, i2) => {
         b2.disabled = true;
         if (i2 === oi) b2.classList.add('selected', isCorrect ? 'ok' : 'bad');
         if (i2 === q.correct && !isCorrect) b2.classList.add('reveal-correct');
       });
+      const fb = document.querySelector('.feedback-line');
+      fb.textContent = studentFeedback;
+      fb.classList.add(isCorrect ? 'ok' : 'bad', 'pop');
       studentSession.answers.push({
         qText: q.text,
         imageUrl: q.imageUrl || '',
@@ -990,7 +1030,6 @@ function renderStudentPlayMC(q) {
         isCorrect
       });
       await sSet('session:' + studentJoinCode, studentSession);
-      renderStudent();
       document.getElementById('nextBtn').style.display = 'inline-block';
       document.getElementById('nextBtn').onclick = () => advanceToNext();
     };
