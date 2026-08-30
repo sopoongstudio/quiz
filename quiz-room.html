@@ -590,7 +590,11 @@ function renderQuizEditor(body) {
     qWrap.innerHTML = q.questions.map((qq, i) => `
       <div class="q-block" data-qi="${i}">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-          <label style="margin-bottom:0;">Question ${i+1}</label>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label style="margin-bottom:0;">Question ${i+1}</label>
+            <button class="btn secondary move-up" data-qi="${i}" ${i===0?'disabled':''} style="padding:4px 8px; font-size:12px;" title="Move up">↑</button>
+            <button class="btn secondary move-down" data-qi="${i}" ${i===q.questions.length-1?'disabled':''} style="padding:4px 8px; font-size:12px;" title="Move down">↓</button>
+          </div>
           <select class="q-type" data-qi="${i}">
             <option value="mc" ${qq.type!=='match' && qq.type!=='dragdrop' ? 'selected':''}>Multiple Choice</option>
             <option value="match" ${qq.type==='match'?'selected':''}>Matching — draw a line</option>
@@ -604,6 +608,22 @@ function renderQuizEditor(body) {
       </div>
     `).join('');
 
+    qWrap.querySelectorAll('.move-up').forEach(el => {
+      el.onclick = () => {
+        const i = +el.dataset.qi;
+        if (i <= 0) return;
+        [q.questions[i-1], q.questions[i]] = [q.questions[i], q.questions[i-1]];
+        renderQuestions();
+      };
+    });
+    qWrap.querySelectorAll('.move-down').forEach(el => {
+      el.onclick = () => {
+        const i = +el.dataset.qi;
+        if (i >= q.questions.length - 1) return;
+        [q.questions[i+1], q.questions[i]] = [q.questions[i], q.questions[i+1]];
+        renderQuestions();
+      };
+    });
     qWrap.querySelectorAll('.q-type').forEach(el => {
       el.onchange = () => { q.questions[+el.dataset.qi].type = el.value; renderQuestions(); };
     });
