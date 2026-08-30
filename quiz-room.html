@@ -713,6 +713,9 @@ function renderQuizEditor(body) {
   function renderMatchFields(qq, i) {
     return `
         <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="Instructions (e.g. Match each word to its meaning)">
+        <label>Image URL (optional — paste the GitHub file link, converts automatically)</label>
+        <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="Paste the github.com/.../blob/... link here (leave blank if none)">
+        ${qq.imageUrl ? `<img src="${escapeAttr(qq.imageUrl)}" style="max-width:100%; max-height:180px; display:block; margin-bottom:12px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
         ${qq.pairs.map((p, pi) => `
           <div class="pair-row">
             <input type="text" class="pair-left" data-qi="${i}" data-pi="${pi}" value="${escapeAttr(p.left)}" placeholder="Left item">
@@ -1038,6 +1041,7 @@ function renderStudentPlayMatch(q) {
     <div class="card">
       <div class="student-q-num">${studentSession.currentIndex+1} / ${studentQuiz.questions.length}</div>
       <div class="student-q-text">${escapeHtml(q.text || 'Match each item on the left to its pair on the right')}</div>
+      ${q.imageUrl ? `<img src="${escapeAttr(q.imageUrl)}" style="max-width:100%; max-height:260px; display:block; margin-bottom:16px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
       <div class="hint" style="margin-top:-4px;">Tap one item on the left, then tap its match on the right (either side first works)</div>
       <div class="match-wrap" id="matchWrap">
         <svg class="match-svg" id="matchSvg"></svg>
@@ -1171,6 +1175,7 @@ function renderStudentPlayDragDrop(q) {
     <div class="card">
       <div class="student-q-num">${studentSession.currentIndex+1} / ${studentQuiz.questions.length}</div>
       <div class="student-q-text">${escapeHtml(q.text || 'Drag each word to its match')}</div>
+      ${q.imageUrl ? `<img src="${escapeAttr(q.imageUrl)}" style="max-width:100%; max-height:260px; display:block; margin-bottom:16px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
       <div id="ddZones" style="display:flex; flex-direction:column; gap:10px; margin-bottom:18px;"></div>
       <div id="ddPool" style="display:flex; flex-wrap:wrap; gap:10px; min-height:54px; padding:12px; border:1px dashed var(--line); border-radius:6px; margin-bottom:16px;"></div>
       <div class="feedback-line"></div>
