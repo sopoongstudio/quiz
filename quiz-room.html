@@ -1038,6 +1038,7 @@ function renderStudentPlayMatch(q) {
     <div class="card">
       <div class="student-q-num">${studentSession.currentIndex+1} / ${studentQuiz.questions.length}</div>
       <div class="student-q-text">${escapeHtml(q.text || 'Match each item on the left to its pair on the right')}</div>
+      <div class="hint" style="margin-top:-4px;">Tap one item on the left, then tap its match on the right (either side first works)</div>
       <div class="match-wrap" id="matchWrap">
         <svg class="match-svg" id="matchSvg"></svg>
         <div class="match-col">
@@ -1065,8 +1066,11 @@ function renderStudentPlayMatch(q) {
   `;
   const wrap = document.getElementById('matchWrap');
   const svg = document.getElementById('matchSvg');
-  let selectedLeftId = null;
-  const matched = {}; // leftId -> { rightId, correct }
+  let selLeftId = null;
+  let selRightId = null;
+  let resolving = false;
+  let mistakeCount = 0;
+  const matched = {}; // leftId -> rightId, only permanent CORRECT matches
 
   function drawLine(leftId, rightId, correct) {
     const wrapRect = wrap.getBoundingClientRect();
@@ -1082,58 +1086,80 @@ function renderStudentPlayMatch(q) {
     line.setAttribute('stroke', correct ? '#3F6E56' : '#B0413E');
     line.setAttribute('stroke-width', '2.5');
     svg.appendChild(line);
+    return line;
   }
 
   function checkDone() {
     if (Object.keys(matched).length !== q.pairs.length) return;
-    const correctCount = Object.values(matched).filter(m => m.correct).length;
-    const allCorrect = correctCount === q.pairs.length;
-    document.querySelector('.feedback-line').textContent =
-      `Matched ${correctCount}/${q.pairs.length} correctly`;
-    document.querySelector('.feedback-line').classList.add(allCorrect ? 'ok' : 'bad');
-    const wrongDetails = q.pairs
-      .filter(p => !matched[p.id].correct)
-      .map(p => {
-        const gotRight = q.pairs.find(x => x.id === matched[p.id].rightId);
-        return `${p.left} → ${gotRight ? gotRight.right : '?'} (correct: ${p.right})`;
-      });
+    const fb = document.querySelector('.feedback-line');
+    fb.textContent = mistakeCount === 0
+      ? 'All matched correctly!'
+      : `All matched — ${mistakeCount} mistake${mistakeCount===1?'':'s'} along the way`;
+    fb.classList.add(mistakeCount === 0 ? 'ok' : 'bad');
     studentSession.answers.push({
       qText: q.text || 'Matching question',
       imageUrl: '',
-      selectedText: `Matched ${correctCount}/${q.pairs.length} pairs`,
-      correctText: wrongDetails.join('; '),
-      isCorrect: allCorrect
+      selectedText: mistakeCount === 0 ? 'Matched all pairs correctly' : `Matched all pairs, ${mistakeCount} mistake${mistakeCount===1?'':'s'}`,
+      correctText: '',
+      isCorrect: mistakeCount === 0
     });
     sSet('session:' + studentJoinCode, studentSession);
     document.getElementById('nextBtn').style.display = 'inline-block';
     document.getElementById('nextBtn').onclick = () => advanceToNext();
   }
 
+  function tryCommitMatch() {
+    if (resolving) return;
+    if (selLeftId === null || selRightId === null) return;
+    const lid = selLeftId, rid = selRightId;
+    const leftBtn = wrap.querySelector(`.match-pill[data-side="left"][data-id="${lid}"]`);
+    const rightBtn = wrap.querySelector(`.match-pill[data-side="right"][data-id="${rid}"]`);
+    const correct = lid === rid;
+    selLeftId = null;
+    selRightId = null;
+    if (correct) {
+      matched[lid] = rid;
+      leftBtn.classList.remove('selected');
+      rightBtn.classList.remove('selected');
+      leftBtn.classList.add('matched-ok');
+      rightBtn.classList.add('matched-ok');
+      drawLine(lid, rid, true);
+      checkDone();
+    } else {
+      mistakeCount++;
+      playWrongSound();
+      leftBtn.classList.add('matched-bad');
+      rightBtn.classList.add('matched-bad');
+      const tempLine = drawLine(lid, rid, false);
+      resolving = true;
+      setTimeout(() => {
+        leftBtn.classList.remove('matched-bad', 'selected');
+        rightBtn.classList.remove('matched-bad', 'selected');
+        tempLine.remove();
+        resolving = false;
+      }, 700);
+    }
+  }
+
   wrap.querySelectorAll('.match-pill[data-side="left"]').forEach(btn => {
     btn.onclick = () => {
+      if (resolving) return;
       if (matched[btn.dataset.id]) return;
       wrap.querySelectorAll('.match-pill[data-side="left"]').forEach(b => b.classList.remove('selected'));
-      selectedLeftId = btn.dataset.id;
+      selLeftId = btn.dataset.id;
       btn.classList.add('selected');
+      tryCommitMatch();
     };
   });
   wrap.querySelectorAll('.match-pill[data-side="right"]').forEach(btn => {
     btn.onclick = () => {
+      if (resolving) return;
       const rid = btn.dataset.id;
-      if (selectedLeftId === null) return;
-      if (Object.values(matched).some(m => m.rightId === rid)) return;
-      const lid = selectedLeftId;
-      if (matched[lid]) return;
-      const correct = lid === rid;
-      matched[lid] = { rightId: rid, correct };
-      if (!correct) playWrongSound();
-      const leftBtn = wrap.querySelector(`.match-pill[data-side="left"][data-id="${lid}"]`);
-      leftBtn.classList.remove('selected');
-      leftBtn.classList.add(correct ? 'matched-ok' : 'matched-bad');
-      btn.classList.add(correct ? 'matched-ok' : 'matched-bad');
-      drawLine(lid, rid, correct);
-      selectedLeftId = null;
-      checkDone();
+      if (Object.values(matched).includes(rid)) return;
+      wrap.querySelectorAll('.match-pill[data-side="right"]').forEach(b => b.classList.remove('selected'));
+      selRightId = rid;
+      btn.classList.add('selected');
+      tryCommitMatch();
     };
   });
 }
@@ -1163,27 +1189,22 @@ function renderStudentPlayDragDrop(q) {
     <div class="dd-card" data-id="${ri.id}" style="touch-action:none; padding:9px 16px; border:1.5px solid var(--line); border-radius:999px; background:var(--white); cursor:grab; user-select:none; font-family:'Inter',sans-serif; font-size:14px;">${escapeHtml(ri.text)}</div>
   `).join('');
 
-  const matched = {};
+  const matched = {}; // targetId -> true, only permanent CORRECT placements
+  let mistakeCount = 0;
 
   function checkDone() {
     if (Object.keys(matched).length !== q.pairs.length) return;
-    const correctCount = Object.values(matched).filter(m => m.correct).length;
-    const allCorrect = correctCount === q.pairs.length;
     const fb = document.querySelector('.feedback-line');
-    fb.textContent = `Matched ${correctCount}/${q.pairs.length} correctly`;
-    fb.classList.add(allCorrect ? 'ok' : 'bad');
-    const wrongDetails = q.pairs
-      .filter(p => !matched[p.id].correct)
-      .map(p => {
-        const got = q.pairs.find(x => x.id === matched[p.id].chosenId);
-        return `${p.left} → ${got ? got.right : '?'} (correct: ${p.right})`;
-      });
+    fb.textContent = mistakeCount === 0
+      ? 'All matched correctly!'
+      : `All matched — ${mistakeCount} mistake${mistakeCount===1?'':'s'} along the way`;
+    fb.classList.add(mistakeCount === 0 ? 'ok' : 'bad');
     studentSession.answers.push({
       qText: q.text || 'Drag & drop matching',
       imageUrl: '',
-      selectedText: `Matched ${correctCount}/${q.pairs.length} pairs`,
-      correctText: wrongDetails.join('; '),
-      isCorrect: allCorrect
+      selectedText: mistakeCount === 0 ? 'Matched all pairs correctly' : `Matched all pairs, ${mistakeCount} mistake${mistakeCount===1?'':'s'}`,
+      correctText: '',
+      isCorrect: mistakeCount === 0
     });
     sSet('session:' + studentJoinCode, studentSession);
     document.getElementById('nextBtn').style.display = 'inline-block';
@@ -1193,6 +1214,7 @@ function renderStudentPlayDragDrop(q) {
   poolEl.querySelectorAll('.dd-card').forEach(card => {
     let dragging = false, offsetX = 0, offsetY = 0;
     card.addEventListener('pointerdown', (e) => {
+      if (card.dataset.resolving) return;
       dragging = true;
       card.setPointerCapture(e.pointerId);
       const rect = card.getBoundingClientRect();
@@ -1219,14 +1241,28 @@ function renderStudentPlayDragDrop(q) {
       const targetId = zone ? zone.dataset.target : null;
       if (targetId && !matched[targetId]) {
         const correct = targetId === card.dataset.id;
-        matched[targetId] = { chosenId: card.dataset.id, correct };
         const slot = zonesEl.querySelector(`.dd-slot[data-target="${targetId}"]`);
-        slot.textContent = card.textContent;
-        slot.style.border = '2px solid ' + (correct ? '#3F6E56' : '#B0413E');
-        slot.style.background = correct ? '#EAF3EE' : '#F7E9E8';
-        if (!correct) playWrongSound();
-        card.remove();
-        checkDone();
+        if (correct) {
+          matched[targetId] = true;
+          slot.textContent = card.textContent;
+          slot.style.border = '2px solid #3F6E56';
+          slot.style.background = '#EAF3EE';
+          card.remove();
+          checkDone();
+        } else {
+          mistakeCount++;
+          playWrongSound();
+          card.dataset.resolving = '1';
+          slot.textContent = card.textContent;
+          slot.style.border = '2px solid #B0413E';
+          slot.style.background = '#F7E9E8';
+          setTimeout(() => {
+            slot.textContent = '';
+            slot.style.border = '';
+            slot.style.background = '';
+            delete card.dataset.resolving;
+          }, 700);
+        }
       }
     });
   });
