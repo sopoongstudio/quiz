@@ -304,6 +304,26 @@
     color: var(--ink);
   }
   .pair-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .mark-wrap { position: relative; line-height: 0; margin-bottom: 8px; }
+  .mark-wrap img { width: 100%; display: block; border: 1px solid var(--line); border-radius: 4px; }
+  .mark-canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; mix-blend-mode: multiply; touch-action: none; cursor: crosshair; }
+  .mark-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .mark-tools .hint { margin: 0; flex: 1; min-width: 160px; }
+  .mark-tools .btn { padding: 5px 12px; font-size: 13px; }
+  .exam-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; }
+  .exam-clock { font-size: 26px; font-weight: 800; color: var(--plum); font-variant-numeric: tabular-nums; }
+  .exam-nav { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .exam-nav button { font-family:'Inter',sans-serif; font-size:13px; min-width:44px; padding:7px 10px; border:1.5px solid var(--line); border-radius:4px; background:var(--white); color:var(--ink); cursor:pointer; }
+  .exam-nav button.answered { background:var(--paper-deep); border-color:var(--ink-soft); }
+  .exam-nav button.current { border-color:var(--ink); border-width:2px; font-weight:700; }
+  .opt-btn.exam-sel { background: var(--ink); border-color: var(--ink); color: var(--white); }
+  table.exam-table { width:100%; border-collapse:collapse; font-size:14px; }
+  table.exam-table th, table.exam-table td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:center; }
+  table.exam-table th:first-child, table.exam-table td:first-child { text-align:left; }
+  table.exam-table tr.flag td { background:#F7EFE3; }
+  .cell-ok { color: var(--ok); font-weight:700; }
+  .cell-bad { color: var(--danger); font-weight:700; }
+  .cell-none { color: var(--ink-soft); }
   .pair-row input[type=text] { margin-bottom: 0; }
 </style>
 </head>
@@ -325,7 +345,7 @@
 <script type="module">
 // ---------- Firebase setup ----------
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDWWi_Zsl8wblOhIcA97bEVEmp75WyJIWo",
@@ -352,6 +372,75 @@ async function sSet(key, val) {
   } catch (e) { return false; }
 }
 function uid() { return Math.random().toString(36).slice(2, 9); }
+
+// ---------- exam mode helpers ----------
+// Estimates the difference between this device's clock and the server clock, so
+// the host and all students count down to the same moment.
+let serverOffset = null;
+async function getServerOffset() {
+  if (serverOffset !== null) return serverOffset;
+  try {
+    const ref = doc(db, 'storage', 'clock-sync');
+    const t0 = Date.now();
+    await setDoc(ref, { t: serverTimestamp() });
+    const snap = await getDoc(ref);
+    const t1 = Date.now();
+    const t = snap.data() && snap.data().t;
+    serverOffset = t ? t.toMillis() - Math.round((t0 + t1) / 2) : 0;
+  } catch (e) { serverOffset = 0; }
+  return serverOffset;
+}
+function nowMs() { return Date.now() + (serverOffset || 0); }
+function nameKey(name) { return String(name).trim().toLowerCase().replace(/[\/\s]+/g, '_'); }
+function subKey(code, name) { return 'exam-sub:' + code + ':' + nameKey(name); }
+async function getRoster(code) {
+  try {
+    const snap = await getDoc(doc(db, 'storage', 'roster-' + code));
+    return snap.exists() && snap.data().names ? snap.data().names : [];
+  } catch (e) { return []; }
+}
+function fmtClock(ms) {
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+}
+// ---------- highlighter marks ----------
+// A stroke is { pts: [x1,y1,x2,y2,...] } with x and y as whole numbers 0-10000
+// (fractions of the image width and height), so the marks line up on any screen size.
+const MARK_COLORS = ['rgba(255,214,0,0.6)', 'rgba(0,176,255,0.45)', 'rgba(255,64,129,0.4)', 'rgba(76,175,80,0.45)'];
+function paintGroups(canvas, groups) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = canvas.width * 0.022;
+  groups.forEach(g => {
+    ctx.strokeStyle = g.color;
+    (g.strokes || []).forEach(st => {
+      const p = st.pts;
+      if (!p || p.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(p[0] / 10000 * canvas.width, p[1] / 10000 * canvas.height);
+      for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i] / 10000 * canvas.width, p[i + 1] / 10000 * canvas.height);
+      if (p.length === 2) ctx.lineTo(p[0] / 10000 * canvas.width + 0.1, p[1] / 10000 * canvas.height);
+      ctx.stroke();
+    });
+  });
+}
+function syncCanvas(img, canvas, redraw) {
+  const fit = () => {
+    const w = img.clientWidth, h = img.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    redraw();
+  };
+  if (img.complete) fit();
+  img.addEventListener('load', fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(img);
+}
+function examEndsAt(session) {
+  return (session.minutes && session.startedAt) ? session.startedAt + session.minutes * 60000 : null;
+}
 function genCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
@@ -469,7 +558,17 @@ let editingQuiz = null;
 let activeSessionCode = null;
 let monitorTimer = null;
 
-let studentStep = 'join'; // join | play | done
+let studentStep = 'join'; // join | play | done | exam
+let examSession = null;
+let examSub = null;
+let examIdx = 0;
+let examPollInt = null;
+let examClockInt = null;
+let examQuizCache = null;
+let examHostClockInt = null;
+let examLastSession = null;
+let examMarksQ = 0;
+let examMarksOff = new Set();
 let studentSession = null;
 let studentQuiz = null;
 let studentName = '';
@@ -498,6 +597,7 @@ function renderAll() {
   teacherViewEl.style.display = role==='teacher' ? 'block' : 'none';
   studentViewEl.style.display = role==='student' ? 'block' : 'none';
   if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+  if (examHostClockInt) { clearInterval(examHostClockInt); examHostClockInt = null; }
   if (role==='teacher') renderTeacher();
   else renderStudent();
 }
@@ -539,6 +639,13 @@ async function renderManage() {
     <div class="card jade">
       <div class="btn-row" style="margin-bottom: 4px;">
         <button class="btn jade" id="newQuizBtn">+ New Quiz</button>
+        <button class="btn secondary" id="importQuizBtn">Import quiz (JSON)</button>
+      </div>
+      <div id="importWrap" style="display:none; margin-top: 12px;">
+        <label>Paste the quiz JSON here</label>
+        <textarea id="importText" rows="8" placeholder='{"title": "...", "exam": {"enabled": true, "minutes": 10}, "questions": [...]}'></textarea>
+        <div class="err" id="importErr" style="display:none;"></div>
+        <button class="btn jade" id="importSaveBtn">Save imported quiz</button>
       </div>
     </div>
     <div class="card">
@@ -547,7 +654,7 @@ async function renderManage() {
           <div class="quiz-row">
             <div>
               <div class="quiz-title">${escapeHtml(q.title)}</div>
-              <div class="quiz-meta">${q.count} question${q.count===1?'':'s'} · ${new Date(q.updatedAt).toLocaleDateString('en-CA')}</div>
+              <div class="quiz-meta">${q.count} question${q.count===1?'':'s'} · ${q.exam ? 'Exam mode · ' : ''}${new Date(q.updatedAt).toLocaleDateString('en-CA')}</div>
             </div>
             <div class="btn-row">
               <button class="btn secondary" data-edit="${q.id}">Edit</button>
@@ -560,6 +667,31 @@ async function renderManage() {
     </div>
   `;
   document.getElementById('newQuizBtn').onclick = () => { editingQuiz = newEmptyQuiz(); renderTeacher(); };
+  document.getElementById('importQuizBtn').onclick = () => {
+    const w = document.getElementById('importWrap');
+    w.style.display = w.style.display === 'none' ? 'block' : 'none';
+  };
+  document.getElementById('importSaveBtn').onclick = async () => {
+    const errEl = document.getElementById('importErr');
+    errEl.style.display = 'none';
+    try {
+      const data = JSON.parse(document.getElementById('importText').value);
+      if (!data.title || !Array.isArray(data.questions) || !data.questions.length) throw new Error('Needs a title and at least one question.');
+      const quiz = {
+        id: uid(), title: data.title,
+        exam: data.exam && data.exam.enabled ? { enabled: true, minutes: data.exam.minutes || null } : { enabled: false, minutes: null },
+        questions: data.questions.map(x => {
+          const base = newEmptyQuestion();
+          return Object.assign(base, { text: x.text || '', imageUrl: x.imageUrl || '', options: x.options || base.options, correct: x.correct || 0, type: 'mc' });
+        })
+      };
+      await persistQuiz(quiz);
+      renderTeacher();
+    } catch (e) {
+      errEl.style.display = 'block';
+      errEl.textContent = 'Could not import: ' + e.message;
+    }
+  };
   body.querySelectorAll('[data-edit]').forEach(btn => {
     btn.onclick = async () => {
       const quiz = await sGet('quiz:' + btn.dataset.edit);
@@ -580,6 +712,18 @@ async function renderManage() {
       const quiz = await sGet('quiz:' + btn.dataset.start);
       if (!quiz || !quiz.questions.length) { alert('This quiz has no questions.'); return; }
       const code = genCode();
+      if (quiz.exam && quiz.exam.enabled) {
+        const examSess = {
+          code, quizId: quiz.id, quizTitle: quiz.title, mode: 'exam',
+          status: 'waiting', minutes: quiz.exam.minutes || null,
+          total: quiz.questions.length, startedAt: null, endedAt: null
+        };
+        await sSet('session:' + code, examSess);
+        activeSessionCode = code;
+        teacherSubtab = 'monitor';
+        renderTeacher();
+        return;
+      }
       const session = {
         code, quizId: quiz.id, quizTitle: quiz.title,
         studentName: '', status: 'waiting',
@@ -594,12 +738,31 @@ async function renderManage() {
   });
 }
 
+async function persistQuiz(q) {
+  await sSet('quiz:' + q.id, q);
+  const idx = (await sGet('quiz-index')) || [];
+  const existing = idx.findIndex(x => x.id === q.id);
+  const entry = { id: q.id, title: q.title, count: q.questions.length, exam: !!(q.exam && q.exam.enabled), updatedAt: Date.now() };
+  if (existing >= 0) idx[existing] = entry; else idx.push(entry);
+  await sSet('quiz-index', idx);
+}
+
 function renderQuizEditor(body) {
   const q = editingQuiz;
   body.innerHTML = `
     <div class="card">
       <label>Quiz Title</label>
       <input type="text" id="quizTitleInput" value="${escapeAttr(q.title)}" placeholder="e.g. Adjectives Practice, Lesson 3">
+      <div class="q-block" style="margin-bottom:16px;">
+        <label style="display:flex; align-items:center; gap:8px; color: var(--ink); font-weight:600; margin-bottom:6px;">
+          <input type="checkbox" id="examChk" ${q.exam && q.exam.enabled ? 'checked' : ''}> Exam mode
+        </label>
+        <div class="hint" style="margin-top:0;">Students solve at their own pace on their own screen. No right or wrong is shown, and answers go to you when they submit.</div>
+        <div id="examSettings" style="display:${q.exam && q.exam.enabled ? 'block' : 'none'};">
+          <label>Time limit in minutes (leave blank for no timer; you can change it again before you press Start)</label>
+          <input type="text" id="examMin" value="${q.exam && q.exam.minutes ? q.exam.minutes : ''}" placeholder="e.g. 10" style="max-width:160px; margin-bottom:0;">
+        </div>
+      </div>
       <div id="questionsWrap"></div>
       <div class="btn-row">
         <button class="btn secondary" id="addQBtn">+ Add Question</button>
@@ -611,6 +774,7 @@ function renderQuizEditor(body) {
     </div>
   `;
   const qWrap = document.getElementById('questionsWrap');
+  const isExam = () => !!(q.exam && q.exam.enabled);
   function renderQuestions() {
     qWrap.innerHTML = q.questions.map((qq, i) => `
       <div class="q-block" data-qi="${i}">
@@ -620,13 +784,13 @@ function renderQuizEditor(body) {
             <button class="btn secondary move-up" data-qi="${i}" ${i===0?'disabled':''} style="padding:4px 8px; font-size:12px;" title="Move up">↑</button>
             <button class="btn secondary move-down" data-qi="${i}" ${i===q.questions.length-1?'disabled':''} style="padding:4px 8px; font-size:12px;" title="Move down">↓</button>
           </div>
-          <select class="q-type" data-qi="${i}">
+          ${isExam() ? '<span class="hint" style="margin:0;">Multiple choice</span>' : `<select class="q-type" data-qi="${i}">
             <option value="mc" ${qq.type!=='match' && qq.type!=='dragdrop' ? 'selected':''}>Multiple Choice</option>
             <option value="match" ${qq.type==='match'?'selected':''}>Matching — draw a line</option>
             <option value="dragdrop" ${qq.type==='dragdrop'?'selected':''}>Matching — drag and drop</option>
-          </select>
+          </select>`}
         </div>
-        ${qq.type === 'match' || qq.type === 'dragdrop' ? renderMatchFields(qq, i) : renderMcFields(qq, i)}
+        ${!isExam() && (qq.type === 'match' || qq.type === 'dragdrop') ? renderMatchFields(qq, i) : renderMcFields(qq, i)}
         <div class="btn-row">
           <button class="btn secondary del-q" data-qi="${i}" style="border-color: var(--danger); color: var(--danger);">Delete this question</button>
         </div>
@@ -723,8 +887,8 @@ function renderQuizEditor(body) {
   }
   function renderMcFields(qq, i) {
     return `
-        <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="Type the question">
-        <label>Image URL (optional — paste the GitHub file link, converts automatically)</label>
+        <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="${isExam() ? 'Question label (e.g. 28번)' : 'Type the question'}">
+        <label>${isExam() ? 'Passage image (the whole question). Paste the GitHub file link, or a path like images/102_28.png' : 'Image URL (optional — paste the GitHub file link, converts automatically)'}</label>
         <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="Paste the github.com/.../blob/... link here (leave blank if none)">
         ${qq.imageUrl ? `<img src="${escapeAttr(qq.imageUrl)}" style="max-width:100%; max-height:180px; display:block; margin-bottom:12px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
         ${qq.options.map((opt, oi) => `
@@ -777,6 +941,17 @@ function renderQuizEditor(body) {
   renderQuestions();
 
   document.getElementById('quizTitleInput').oninput = (e) => { q.title = e.target.value; };
+  if (!q.exam) q.exam = { enabled: false, minutes: null };
+  document.getElementById('examChk').onchange = (e) => {
+    q.exam.enabled = e.target.checked;
+    if (q.exam.enabled) q.questions.forEach(x => { x.type = 'mc'; });
+    document.getElementById('examSettings').style.display = q.exam.enabled ? 'block' : 'none';
+    renderQuestions();
+  };
+  document.getElementById('examMin').oninput = (e) => {
+    const n = parseFloat(e.target.value);
+    q.exam.minutes = n > 0 ? n : null;
+  };
   document.getElementById('addQBtn').onclick = () => { q.questions.push(newEmptyQuestion()); renderQuestions(); };
   document.getElementById('cancelEditBtn').onclick = () => { editingQuiz = null; renderTeacher(); };
   document.getElementById('saveQuizBtn').onclick = async () => {
@@ -799,12 +974,7 @@ function renderQuizEditor(body) {
         }
       }
     }
-    await sSet('quiz:' + q.id, q);
-    const idx = (await sGet('quiz-index')) || [];
-    const existing = idx.findIndex(x => x.id === q.id);
-    const entry = { id: q.id, title: q.title, count: q.questions.length, updatedAt: Date.now() };
-    if (existing >= 0) idx[existing] = entry; else idx.push(entry);
-    await sSet('quiz-index', idx);
+    await persistQuiz(q);
     editingQuiz = null;
     renderTeacher();
   };
@@ -838,6 +1008,7 @@ async function renderMonitorBody() {
   if (!el || !activeSessionCode) return;
   const session = await sGet('session:' + activeSessionCode);
   if (!session) { el.innerHTML = '<div class="card empty">Could not find a session with that code.</div>'; return; }
+  if (session.mode === 'exam') { await renderExamMonitor(el, session); return; }
   const wrongCount = session.answers.filter(a => !a.isCorrect).length;
   const correctCount = session.answers.filter(a => a.isCorrect).length;
   el.innerHTML = `
@@ -925,9 +1096,370 @@ async function renderMonitorBody() {
   }
 }
 
+// ---------- exam mode: host side ----------
+const CIRC = ['①','②','③','④','⑤','⑥'];
+async function renderExamMonitor(el, session) {
+  await getServerOffset();
+  examLastSession = session;
+  if (!examQuizCache || examQuizCache.id !== session.quizId) examQuizCache = await sGet('quiz:' + session.quizId);
+  const quiz = examQuizCache;
+  if (!quiz) { el.innerHTML = '<div class="card empty">Could not load the quiz for this session.</div>'; return; }
+
+  // auto-end when the time is up (the host page does this while it is open)
+  const endsAt = examEndsAt(session);
+  if (session.status === 'running' && endsAt && nowMs() > endsAt + 3000) {
+    session.status = 'ended'; session.endedAt = nowMs();
+    await sSet('session:' + activeSessionCode, session);
+  }
+
+  const names = await getRoster(activeSessionCode);
+  const subs = await Promise.all(names.map(n => sGet(subKey(activeSessionCode, n))));
+  const students = names.map((n, i) => ({ name: n, sub: subs[i] || { answers: {}, submitted: false } }));
+  const total = quiz.questions.length;
+  const allSubmitted = students.length > 0 && students.every(st => st.sub.submitted);
+  const showResults = session.status === 'ended' || allSubmitted;
+
+  // controls: rebuilt only when the session status changes, so the minutes box keeps focus
+  if (el.dataset.exBuilt !== activeSessionCode) {
+    el.innerHTML = '<div id="exCtl"></div><div id="exLive"></div><div id="exMarks"></div>';
+    el.dataset.exBuilt = activeSessionCode;
+    el.dataset.exStatus = '';
+  }
+  const ctl = document.getElementById('exCtl');
+  if (el.dataset.exStatus !== session.status) {
+    el.dataset.exStatus = session.status;
+    const link = `${window.location.origin}${window.location.pathname}?code=${activeSessionCode}`;
+    ctl.innerHTML = `
+      <div class="card plum">
+        <div class="code-display">
+          <div class="label">Give this code to the students</div>
+          <div class="code">${activeSessionCode}</div>
+        </div>
+        <div style="margin-bottom: 14px;">
+          <div style="font-size: 12px; color: var(--ink-soft); text-align:center; margin-bottom: 6px;">Or send this link (code is pre-filled):</div>
+          <div style="display:flex; gap: 6px;">
+            <input type="text" id="studentLinkInput" readonly value="${link}" style="flex:1; font-size:12px; margin-bottom:0; background: var(--white);" onclick="this.select()">
+            <button class="btn secondary" id="copyLinkBtn" style="white-space:nowrap;">Copy</button>
+          </div>
+        </div>
+        <div style="text-align:center; margin-bottom: 6px;">
+          <span class="status-pill ${session.status==='running'?'live':''}">${session.quizTitle} · Exam · ${
+            session.status==='waiting' ? 'Waiting to start' : session.status==='running' ? 'In progress' : 'Ended'}</span>
+        </div>
+        ${session.status === 'waiting' ? `
+          <div style="text-align:center; margin-top:12px;">
+            <label style="display:inline-block; margin-right:8px;">Time limit (minutes, blank = no timer)</label>
+            <input type="text" id="exMin" value="${session.minutes || ''}" style="width:90px; margin-bottom:0;">
+          </div>
+          <div style="text-align:center; margin-top:12px;">
+            <button class="btn jade" id="exStartBtn">Start</button>
+          </div>` : ''}
+        ${session.status === 'running' ? `
+          <div style="text-align:center; margin-top:12px;">
+            <div class="exam-clock" id="exClock"></div>
+            <button class="btn secondary" id="exEndBtn" style="margin-top:10px; border-color: var(--danger); color: var(--danger);">End now</button>
+          </div>` : ''}
+      </div>`;
+    const copyBtn = document.getElementById('copyLinkBtn');
+    copyBtn.onclick = async () => {
+      const input = document.getElementById('studentLinkInput');
+      try { await navigator.clipboard.writeText(input.value); } catch (e) { input.select(); document.execCommand('copy'); }
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+    };
+    const startBtn = document.getElementById('exStartBtn');
+    if (startBtn) startBtn.onclick = async () => {
+      const raw = document.getElementById('exMin').value.trim();
+      const m = raw === '' ? null : parseFloat(raw);
+      if (raw !== '' && !(m > 0)) { alert('Please enter the minutes as a number, or leave it blank.'); return; }
+      const fresh = await sGet('session:' + activeSessionCode);
+      fresh.minutes = m; fresh.status = 'running'; fresh.startedAt = nowMs();
+      await sSet('session:' + activeSessionCode, fresh);
+      renderMonitorBody();
+    };
+    const endBtn = document.getElementById('exEndBtn');
+    if (endBtn) endBtn.onclick = async () => {
+      if (!confirm('End the exam now? Anyone still solving will be submitted automatically.')) return;
+      const fresh = await sGet('session:' + activeSessionCode);
+      fresh.status = 'ended'; fresh.endedAt = nowMs();
+      await sSet('session:' + activeSessionCode, fresh);
+      renderMonitorBody();
+    };
+    if (examHostClockInt) clearInterval(examHostClockInt);
+    examHostClockInt = setInterval(() => {
+      const c = document.getElementById('exClock');
+      const sess = examLastSession;
+      if (!c || !sess) return;
+      const e = examEndsAt(sess);
+      c.textContent = e ? fmtClock(e - nowMs()) : 'No time limit';
+    }, 500);
+  }
+
+  // live part: who joined, progress, and results
+  const live = document.getElementById('exLive');
+  const rosterHtml = students.length === 0
+    ? '<div class="empty">No students have joined yet.</div>'
+    : students.map(st => {
+        const n = Object.keys(st.sub.answers || {}).length;
+        const state = st.sub.submitted ? 'Submitted' : (session.status === 'waiting' ? 'Joined' : `Solving · ${n} / ${total} answered`);
+        return `<div class="answer-log-row"><div class="log-text"><div class="qtext">${escapeHtml(st.name)}</div><div class="picked">${state}</div></div></div>`;
+      }).join('');
+
+  let resultsHtml = '';
+  if (showResults && students.length) {
+    const scores = students.map(() => 0);
+    const rows = quiz.questions.map((q, qi) => {
+      const picks = students.map(st => st.sub.answers ? st.sub.answers[q.id] : undefined);
+      picks.forEach((p, k) => { if (p === q.correct) scores[k]++; });
+      const differ = new Set(picks.map(p => p === undefined ? 'x' : p)).size > 1;
+      const anyWrong = picks.some(p => p !== q.correct);
+      const cells = picks.map(p => p === undefined
+        ? '<span class="cell-none">–</span>'
+        : `<span class="${p === q.correct ? 'cell-ok' : 'cell-bad'}">${CIRC[p] || (p+1)} ${p === q.correct ? '○' : '✕'}</span>`).join('</td><td>');
+      return `<tr class="${differ || anyWrong ? 'flag' : ''}"><td>${escapeHtml(q.text)}</td><td>${CIRC[q.correct] || (q.correct+1)}</td><td>${cells}</td></tr>`;
+    }).join('');
+    resultsHtml = `
+      <div class="card gold">
+        <div style="font-weight:700; margin-bottom: 8px;">Results</div>
+        <table class="exam-table">
+          <tr><th>Question</th><th>Answer</th>${students.map(st => `<th>${escapeHtml(st.name)}</th>`).join('')}</tr>
+          ${rows}
+          <tr><th>Score</th><th></th>${scores.map(sc => `<th>${sc} / ${total}</th>`).join('')}</tr>
+        </table>
+        <div class="hint" style="margin-top:10px;">Shaded rows: someone got it wrong or the answers differ. Start there.</div>
+      </div>`;
+  } else if (session.status !== 'waiting') {
+    resultsHtml = '<div class="card"><div class="empty">Results appear when everyone has submitted or time is up. Please do not share this screen while students are solving.</div></div>';
+  }
+
+  live.innerHTML = `
+    <div class="card"><div style="font-weight:700; margin-bottom: 8px;">Students</div>${rosterHtml}</div>
+    ${resultsHtml}`;
+
+  // marks card: rebuilt only when the marks or the selection change, so the image does not flicker
+  const marksEl = document.getElementById('exMarks');
+  if (showResults && students.length) {
+    const sig = JSON.stringify([students.map(st => [st.name, st.sub.marks || null]), examMarksQ, [...examMarksOff]]);
+    if (marksEl.dataset.sig !== sig) {
+      marksEl.dataset.sig = sig;
+      drawMarksCard(marksEl, quiz, students);
+    }
+  } else {
+    marksEl.innerHTML = '';
+    marksEl.dataset.sig = '';
+  }
+}
+
+function drawMarksCard(el, quiz, students) {
+  if (examMarksQ >= quiz.questions.length) examMarksQ = 0;
+  const q = quiz.questions[examMarksQ];
+  const count = (st) => ((st.sub.marks && st.sub.marks[q.id]) || []).length;
+  el.innerHTML = `
+    <div class="card plum">
+      <div style="font-weight:700; margin-bottom: 8px;">Marks</div>
+      <div class="exam-nav">${quiz.questions.map((x, i) => `<button data-mq="${i}" class="${i === examMarksQ ? 'current' : ''}">${escapeHtml(x.text)}</button>`).join('')}</div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:10px;">
+        ${students.map((st, k) => `
+          <label style="display:flex; align-items:center; gap:6px; margin:0; color: var(--ink);">
+            <input type="checkbox" data-ms="${escapeAttr(st.name)}" ${examMarksOff.has(st.name) ? '' : 'checked'}>
+            <span style="display:inline-block; width:14px; height:14px; background:${MARK_COLORS[k % MARK_COLORS.length]}; border:1px solid var(--line);"></span>
+            ${escapeHtml(st.name)} (${count(st)})
+          </label>`).join('')}
+      </div>
+      ${q.imageUrl ? `<div class="mark-wrap"><img id="exMarkImg" src="${escapeAttr(q.imageUrl)}" onerror="this.style.display='none'"><canvas id="exMarkCanvas" class="mark-canvas" style="pointer-events:none;"></canvas></div>` : '<div class="empty">This question has no image.</div>'}
+    </div>`;
+  el.querySelectorAll('[data-mq]').forEach(b => { b.onclick = () => { examMarksQ = +b.dataset.mq; renderMonitorBody(); }; });
+  el.querySelectorAll('[data-ms]').forEach(b => {
+    b.onchange = () => {
+      if (b.checked) examMarksOff.delete(b.dataset.ms); else examMarksOff.add(b.dataset.ms);
+      renderMonitorBody();
+    };
+  });
+  const img = document.getElementById('exMarkImg');
+  const cv = document.getElementById('exMarkCanvas');
+  if (img && cv) {
+    const redraw = () => paintGroups(cv, students
+      .map((st, k) => ({ name: st.name, strokes: (st.sub.marks && st.sub.marks[q.id]) || [], color: MARK_COLORS[k % MARK_COLORS.length] }))
+      .filter(g => !examMarksOff.has(g.name)));
+    syncCanvas(img, cv, redraw);
+  }
+}
+
+// ---------- exam mode: student side ----------
+function clearExamTimers() {
+  if (examPollInt) { clearInterval(examPollInt); examPollInt = null; }
+  if (examClockInt) { clearInterval(examClockInt); examClockInt = null; }
+}
+
+async function startExamStudent(name, code, session, quiz, errEl) {
+  await getServerOffset();
+  let sub = await sGet(subKey(code, name));
+  if (!sub) {
+    if (session.status === 'ended') { errEl.style.display='block'; errEl.textContent='This exam has already ended.'; return; }
+    sub = { name, answers: {}, submitted: false, submittedAt: null };
+    await sSet(subKey(code, name), sub);
+  }
+  try { await setDoc(doc(db, 'storage', 'roster-' + code), { names: arrayUnion(name) }, { merge: true }); } catch (e) {}
+  studentName = name;
+  studentJoinCode = code;
+  studentQuiz = quiz;
+  examSession = session;
+  examSub = sub;
+  examIdx = 0;
+  studentStep = 'exam';
+  renderStudent();
+}
+
+function renderExam() {
+  clearExamTimers();
+  examPollInt = setInterval(pollExam, 1500);
+  drawExam();
+}
+
+async function pollExam() {
+  const s = await sGet('session:' + studentJoinCode);
+  if (!s) return;
+  const prev = examSession.status;
+  examSession = s;
+  if (s.status === 'ended' && !examSub.submitted) { await submitExam(); return; }
+  if (s.status !== prev) drawExam();
+}
+
+async function submitExam() {
+  if (examSub.submitted) return;
+  examSub.submitted = true;
+  examSub.submittedAt = nowMs();
+  await sSet(subKey(studentJoinCode, studentName), examSub);
+  clearExamTimers();
+  drawExam();
+}
+
+function drawExam() {
+  const total = studentQuiz.questions.length;
+  if (examSub.submitted) {
+    studentViewEl.innerHTML = `
+      <div class="card jade">
+        <div class="score-big">
+          <div>Submitted. Thank you, ${escapeHtml(studentName)}.</div>
+          <div style="font-size:15px; color: var(--ink-soft); margin-top:8px;">Please wait for your teacher.</div>
+        </div>
+      </div>`;
+    return;
+  }
+  if (examSession.status === 'waiting') {
+    studentViewEl.innerHTML = `
+      <div class="card">
+        <div class="score-big">
+          <div>Hi, ${escapeHtml(studentName)}.</div>
+          <div style="font-size:15px; color: var(--ink-soft); margin-top:8px;">Please wait. Your teacher will press Start.</div>
+        </div>
+      </div>`;
+    return;
+  }
+  studentViewEl.innerHTML = `
+    <div class="card">
+      <div class="exam-bar">
+        <div class="student-q-num" style="margin:0;">${escapeHtml(studentName)}</div>
+        <div class="exam-clock" id="examClock"></div>
+      </div>
+      <div class="exam-nav" id="examNav"></div>
+      <div id="examQ"></div>
+    </div>`;
+  drawExamQuestion();
+  if (examClockInt) clearInterval(examClockInt);
+  const tick = () => {
+    const el = document.getElementById('examClock');
+    const e = examEndsAt(examSession);
+    if (!el) return;
+    if (!e) { el.textContent = ''; return; }
+    const left = e - nowMs();
+    el.textContent = fmtClock(left);
+    if (left <= 0) submitExam();
+  };
+  tick();
+  examClockInt = setInterval(tick, 500);
+}
+
+function drawExamQuestion() {
+  const qs = studentQuiz.questions;
+  const q = qs[examIdx];
+  const nav = document.getElementById('examNav');
+  nav.innerHTML = qs.map((x, i) => `<button data-i="${i}" class="${examSub.answers[x.id] !== undefined ? 'answered' : ''} ${i === examIdx ? 'current' : ''}">${escapeHtml(x.text)}</button>`).join('');
+  nav.querySelectorAll('button').forEach(b => { b.onclick = () => { examIdx = +b.dataset.i; drawExamQuestion(); }; });
+  const picked = examSub.answers[q.id];
+  document.getElementById('examQ').innerHTML = `
+    ${q.imageUrl ? `<div class="mark-wrap"><img id="examImg" src="${escapeAttr(q.imageUrl)}" onerror="this.style.display='none'"><canvas id="markCanvas" class="mark-canvas"></canvas></div>
+    <div class="mark-tools">
+      <div class="hint">Optional: drag on the passage to highlight parts that are hard for you.</div>
+      <button class="btn secondary" id="markUndo">Undo</button>
+      <button class="btn secondary" id="markClear">Clear</button>
+    </div>` : ''}
+    <div id="examOpts">${q.options.map((opt, oi) => `
+      <button class="opt-btn ${picked === oi ? 'exam-sel' : ''}" data-oi="${oi}">${CIRC[oi] || (oi+1)} ${escapeHtml(opt)}</button>`).join('')}</div>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="btn secondary" id="examPrev" ${examIdx === 0 ? 'disabled' : ''}>Back</button>
+      <button class="btn secondary" id="examNext" ${examIdx === qs.length - 1 ? 'disabled' : ''}>Next</button>
+      ${examIdx === qs.length - 1 ? '<button class="btn jade" id="examSubmit" style="margin-left:auto;">Submit all answers</button>' : ''}
+    </div>
+    <div class="hint" style="margin-top:12px;">${examIdx === qs.length - 1
+      ? 'This sends the answers for every question. You cannot change them after this.'
+      : 'Your answer is saved when you tap it. Press Submit all answers on the last question when you are done.'}</div>`;
+  const mImg = document.getElementById('examImg');
+  const mCv = document.getElementById('markCanvas');
+  if (mImg && mCv) {
+    examSub.marks = examSub.marks || {};
+    const strokes = () => (examSub.marks[q.id] = examSub.marks[q.id] || []);
+    const redraw = () => paintGroups(mCv, [{ strokes: strokes(), color: MARK_COLORS[0] }]);
+    const saveSub = () => sSet(subKey(studentJoinCode, studentName), examSub);
+    const toPt = (e) => {
+      const r = mCv.getBoundingClientRect();
+      return [Math.round((e.clientX - r.left) / r.width * 10000), Math.round((e.clientY - r.top) / r.height * 10000)];
+    };
+    syncCanvas(mImg, mCv, redraw);
+    let cur = null;
+    mCv.onpointerdown = (e) => {
+      e.preventDefault();
+      try { mCv.setPointerCapture(e.pointerId); } catch (err) {}
+      cur = { pts: toPt(e) };
+      strokes().push(cur);
+      redraw();
+    };
+    mCv.onpointermove = (e) => {
+      if (!cur) return;
+      const pt = toPt(e);
+      const n = cur.pts.length;
+      if (Math.abs(pt[0] - cur.pts[n - 2]) + Math.abs(pt[1] - cur.pts[n - 1]) < 30) return;
+      if (n >= 800) return;
+      cur.pts.push(pt[0], pt[1]);
+      redraw();
+    };
+    const endStroke = () => { if (!cur) return; cur = null; saveSub(); };
+    mCv.onpointerup = endStroke;
+    mCv.onpointercancel = endStroke;
+    document.getElementById('markUndo').onclick = () => { strokes().pop(); redraw(); saveSub(); };
+    document.getElementById('markClear').onclick = () => { examSub.marks[q.id] = []; redraw(); saveSub(); };
+  }
+  document.querySelectorAll('#examOpts .opt-btn').forEach(b => {
+    b.onclick = () => {
+      examSub.answers[q.id] = +b.dataset.oi;
+      sSet(subKey(studentJoinCode, studentName), examSub);
+      drawExamQuestion();
+    };
+  });
+  document.getElementById('examPrev').onclick = () => { examIdx--; drawExamQuestion(); };
+  document.getElementById('examNext').onclick = () => { examIdx++; drawExamQuestion(); };
+  const submitBtn = document.getElementById('examSubmit');
+  if (submitBtn) submitBtn.onclick = async () => {
+    const left = qs.filter(x => examSub.answers[x.id] === undefined).length;
+    const msg = left ? `You have ${left} unanswered. Submit all answers now?` : 'Submit all answers?';
+    if (confirm(msg)) await submitExam();
+  };
+}
+
 // ================= STUDENT =================
 function renderStudent() {
   if (studentStep === 'join') renderStudentJoin();
+  else if (studentStep === 'exam') renderExam();
   else if (studentStep === 'play') renderStudentPlay();
   else renderStudentDone();
 }
@@ -958,6 +1490,7 @@ function renderStudentJoin() {
     if (session.status === 'done') { errEl.style.display='block'; errEl.textContent='This session has already been completed. Ask your teacher to start a new one.'; return; }
     const quiz = await sGet('quiz:' + session.quizId);
     if (!quiz) { errEl.style.display='block'; errEl.textContent='Could not load the quiz.'; return; }
+    if (session.mode === 'exam') { await startExamStudent(name, code, session, quiz, errEl); return; }
     session.studentName = name;
     session.status = 'active';
     await sSet('session:' + code, session);
