@@ -441,6 +441,17 @@ function syncCanvas(img, canvas, redraw) {
 function examEndsAt(session) {
   return (session.minutes && session.startedAt) ? session.startedAt + session.minutes * 60000 : null;
 }
+// Each browser gets its own id, so two students typing the same name are never mixed up.
+function deviceId() {
+  try {
+    let d = localStorage.getItem('quiz-device');
+    if (!d) { d = uid() + uid(); localStorage.setItem('quiz-device', d); }
+    return d;
+  } catch (e) {
+    if (!window.__dev) window.__dev = uid() + uid();
+    return window.__dev;
+  }
+}
 function genCode() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
@@ -1293,10 +1304,18 @@ function clearExamTimers() {
 
 async function startExamStudent(name, code, session, quiz, errEl) {
   await getServerOffset();
+  const me = deviceId();
+  const nameTaken = () => { errEl.style.display='block'; errEl.textContent='This name is already used by someone else. Please add a letter or number to your name (for example: Kim A).'; };
   let sub = await sGet(subKey(code, name));
+  if (sub && sub.deviceId && sub.deviceId !== me) { nameTaken(); return; }
   if (!sub) {
     if (session.status === 'ended') { errEl.style.display='block'; errEl.textContent='This exam has already ended.'; return; }
-    sub = { name, answers: {}, submitted: false, submittedAt: null };
+    sub = { name, deviceId: me, answers: {}, submitted: false, submittedAt: null };
+    await sSet(subKey(code, name), sub);
+    const check = await sGet(subKey(code, name));
+    if (check && check.deviceId && check.deviceId !== me) { nameTaken(); return; }
+  } else if (!sub.deviceId) {
+    sub.deviceId = me;
     await sSet(subKey(code, name), sub);
   }
   try { await setDoc(doc(db, 'storage', 'roster-' + code), { names: arrayUnion(name) }, { merge: true }); } catch (e) {}
@@ -1468,8 +1487,8 @@ function renderStudentJoin() {
   const hasPrefilled = !!(prefilledCode && !studentJoinCode);
   studentViewEl.innerHTML = `
     <div class="card jade join-form">
-      <label>Name</label>
-      <input type="text" id="stuName" value="${escapeAttr(studentName)}" placeholder="Enter your name">
+      <label>Enter your name</label>
+      <input type="text" id="stuName" value="${escapeAttr(studentName)}" placeholder="Type your name here">
       ${hasPrefilled ? '' : `
       <label>Session Code</label>
       <input type="text" id="stuCode" value="${escapeAttr(studentJoinCode)}" placeholder="Code your teacher gave you">
@@ -1484,6 +1503,7 @@ function renderStudentJoin() {
     const code = hasPrefilled ? prefilledCode : (codeInput ? codeInput.value.trim() : '');
     const errEl = document.getElementById('stuErr');
     if (!name || !code) { errEl.style.display='block'; errEl.textContent='Please enter your name.'; return; }
+    if (name === code || /^\d+$/.test(name)) { errEl.style.display='block'; errEl.textContent='Please type your name, not the code.'; return; }
     const session = await sGet('session:' + code);
     if (!session) { errEl.style.display='block'; errEl.textContent='Could not find that code. Please check it.'; return; }
     if (session.status === 'closed') { errEl.style.display='block'; errEl.textContent='This session has ended. Ask your teacher to start a new one.'; return; }
