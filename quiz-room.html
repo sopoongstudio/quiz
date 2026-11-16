@@ -618,7 +618,7 @@ function newEmptyQuiz() {
   return { id: uid(), title: '', questions: [ newEmptyQuestion() ] };
 }
 function newEmptyQuestion() {
-  return { id: uid(), type: 'mc', text: '', imageUrl: '', options: ['', '', '', ''], correct: 0, correctIndices: [], pairs: [ newEmptyPair(), newEmptyPair() ] };
+  return { id: uid(), type: 'mc', text: '', imageUrl: '', options: ['', '', '', ''], correct: 0, variant: false, correctIndices: [], pairs: [ newEmptyPair(), newEmptyPair() ] };
 }
 function newEmptyPair() {
   return { id: uid(), left: '', right: '' };
@@ -693,7 +693,7 @@ async function renderManage() {
         exam: data.exam && data.exam.enabled ? { enabled: true, minutes: data.exam.minutes || null } : { enabled: false, minutes: null },
         questions: data.questions.map(x => {
           const base = newEmptyQuestion();
-          return Object.assign(base, { text: x.text || '', imageUrl: x.imageUrl || '', options: x.options || base.options, correct: x.correct || 0, type: 'mc' });
+          return Object.assign(base, { text: x.text || '', imageUrl: x.imageUrl || '', options: x.options || base.options, correct: x.correct || 0, variant: !!x.variant, type: 'mc' });
         })
       };
       await persistQuiz(quiz);
@@ -830,6 +830,9 @@ function renderQuizEditor(body) {
     qWrap.querySelectorAll('.q-text').forEach(el => {
       el.oninput = () => { q.questions[+el.dataset.qi].text = el.value; };
     });
+    qWrap.querySelectorAll('.q-variant').forEach(el => {
+      el.onchange = () => { q.questions[+el.dataset.qi].variant = el.checked; };
+    });
     qWrap.querySelectorAll('.q-image').forEach(el => {
       el.oninput = () => { q.questions[+el.dataset.qi].imageUrl = el.value; };
       el.onchange = () => {
@@ -899,6 +902,7 @@ function renderQuizEditor(body) {
   function renderMcFields(qq, i) {
     return `
         <input type="text" class="q-text" data-qi="${i}" value="${escapeAttr(qq.text)}" placeholder="${isExam() ? 'Question label (e.g. 28번)' : 'Type the question'}">
+        ${isExam() ? `<label style="display:flex; align-items:center; gap:8px; color: var(--ink); font-weight:600; margin-bottom:10px;"><input type="checkbox" class="q-variant" data-qi="${i}" ${qq.variant ? 'checked' : ''}> Show a "기출 변형" button on this question (rewritten from a past paper)</label>` : ''}
         <label>${isExam() ? 'Passage image (the whole question). Paste the GitHub file link, or a path like images/102_28.png' : 'Image URL (optional — paste the GitHub file link, converts automatically)'}</label>
         <input type="text" class="q-image" data-qi="${i}" value="${escapeAttr(qq.imageUrl||'')}" placeholder="Paste the github.com/.../blob/... link here (leave blank if none)">
         ${qq.imageUrl ? `<img src="${escapeAttr(qq.imageUrl)}" style="max-width:100%; max-height:180px; display:block; margin-bottom:12px; border:1px solid var(--line); border-radius:4px;" onerror="this.style.display='none'">` : ''}
@@ -1407,6 +1411,7 @@ function drawExamQuestion() {
   nav.querySelectorAll('button').forEach(b => { b.onclick = () => { examIdx = +b.dataset.i; drawExamQuestion(); }; });
   const picked = examSub.answers[q.id];
   document.getElementById('examQ').innerHTML = `
+    ${q.variant ? `<div style="margin-bottom:10px;"><button class="btn secondary" id="variantBtn" style="padding:4px 12px; font-size:13px;">기출 변형</button><div class="hint" id="variantNote" style="display:none; margin:8px 0 0;">This passage is rewritten from the real exam, because the official passage is not published.</div></div>` : ''}
     ${q.imageUrl ? `<div class="mark-wrap"><img id="examImg" src="${escapeAttr(q.imageUrl)}" onerror="this.style.display='none'"><canvas id="markCanvas" class="mark-canvas"></canvas></div>
     <div class="mark-tools">
       <div class="hint">Optional: drag on the passage to highlight parts that are hard for you.</div>
@@ -1423,6 +1428,11 @@ function drawExamQuestion() {
     <div class="hint" style="margin-top:12px;">${examIdx === qs.length - 1
       ? 'This sends the answers for every question. You cannot change them after this.'
       : 'Your answer is saved when you tap it. Press Submit all answers on the last question when you are done.'}</div>`;
+  const vBtn = document.getElementById('variantBtn');
+  if (vBtn) vBtn.onclick = () => {
+    const n = document.getElementById('variantNote');
+    n.style.display = n.style.display === 'none' ? 'block' : 'none';
+  };
   const mImg = document.getElementById('examImg');
   const mCv = document.getElementById('markCanvas');
   if (mImg && mCv) {
